@@ -8,7 +8,7 @@
 #Copyright 2012
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.3';
+my $software_version_number = '1.4';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -33,6 +33,7 @@ my $help                = 0;
 my $adv_help            = 0;
 my $version             = 0;
 my $overwrite           = 0;
+my $force               = 0;
 my $skip_existing       = 0;
 my $header              = 1;
 my $error_limit         = 50;
@@ -60,7 +61,8 @@ my $GetOptHash =
 				     [sglob($_[1])])},
    't|filetype=s'       => \$filetype,                 #OPTIONAL [auto](fasta,
 				                       #         fastq,auto)
-   'force|overwrite'    => \$overwrite,                #OPTIONAL [Off]
+   'overwrite'          => \$overwrite,                #OPTIONAL [Off]
+   'force'              => \$force,                    #OPTIONAL [Off]
    'skip-existing!'     => \$skip_existing,            #OPTIONAL [Off]
    'ignore'             => \$ignore_errors,            #OPTIONAL [Off]
    'verbose:+'          => \$verbose,                  #OPTIONAL [Off]
@@ -285,7 +287,7 @@ foreach my $set_num (0..$#$input_file_sets)
     my $ary          = [];
     my $lookup       = {};
     my $cnt          = 0;
-    my($rec);
+    my($rec,$last_len);
 
     #For each line in the current input file
     while($rec = getNextSeqRec(*INPUT))
@@ -313,6 +315,35 @@ foreach my $set_num (0..$#$input_file_sets)
 	##
 
 	my $len = length($seq);
+
+	#Error-check the sequence
+	if(defined($last_len) && $len != $last_len)
+	  {
+	    my $err = "Length of sequence [$id] in file [$input_file]: " .
+	      "[$len] does not match the length of the previous " .
+		"sequence(s): [$last_len].";
+	    if($force)
+	      {warning($err)}
+	    else
+	      {
+		error($err,"  Skipping file.  Use --force to over-ride.");
+		last;
+	      }
+	  }
+	if($seq =~ /([^ATGCatcg])/)
+	  {
+	    my $example = $1;
+	    my $err = "Invalid character(s) found in sequence [$id] in file " .
+	      "[$input_file] (e.g. [$example]).";
+	    if($force)
+	      {warning($err)}
+	    else
+	      {
+		error($err,"  Skipping sequence.  Use --force to over-ride.");
+		next;
+	      }
+	  }
+	$last_len = $len;
 
 	#This code for using arbitrary length seeds is legacy (from testing)
 	#and it didn't perform as well, but might be useful later if the
@@ -2289,7 +2320,25 @@ end_print
     if(!$advanced)
       {
 	print << "end_print";
-* WHAT IS THIS: This script finds all hamming distance 1 neighbors of a set of
+* WHAT IS THIS: This script represents the first step of a 4 step process in
+                the package called 'hamming1':
+
+                *1. neighbors.pl  generates a hamming distance 1 neighbors file
+                 2. errorRates.pl generates a Z-Score histogram (see -h)
+                 3. errorRates.pl generates error rate estimates (see -z)
+                 4. nZeros.pl     generates expected error abundances
+
+                Use these scripts when you have a metagenomic sample of
+                ungapped, aligned, & same-sized sequences, to help give you an
+                idea which sequences might be real and which are the result of
+                PCR substitution errors.  The N0 expected error abundances
+                output can be compared to actual abundance to infer whether the
+                sequence is real.  I.e. If the actual abundance is much larger
+                than the abundance you would expect to see if a sequence is the
+                result of PCR substitution errors, then you would expect the
+                sequence to be real (i.e. exist in the original sample).
+
+                This script finds all hamming distance 1 neighbors of a set of
                 aligned, same-length, no-gap, input sequences.  I.e., for each
                 sequence, it finds all other sequences which differ from it by
                 1 substitution.  Only works for mismatches, not indels.
