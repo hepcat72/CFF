@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.4';
+my $software_version_number = '1.5';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -2848,8 +2848,8 @@ end_print
     if(!$advanced)
       {
 	print << "end_print";
-* WHAT IS THIS: This script represents the first 2 steps of a 4 step process in
-                the package called 'hamming1':
+* WHAT IS THIS: This script represents the middle 2 steps of a 4 step process
+                in the package called 'hamming1':
 
                  1. neighbors.pl  generates a hamming distance 1 neighbors file
                 *2. errorRates.pl generates a Z-Score histogram (see -h)
