@@ -333,7 +333,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	    my $example = $1;
 	    my $err = "Invalid character(s) found in sequence [$id] in file " .
 	      "[$input_file] (e.g. [$example]).";
-	    if($force)
+	    if($ignore_errors)
 	      {warning($err)}
 	    else
 	      {
