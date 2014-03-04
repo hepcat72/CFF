@@ -8,7 +8,7 @@
 #Copyright 2012
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.4';
+my $software_version_number = '1.5';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -33,7 +33,6 @@ my $help                = 0;
 my $adv_help            = 0;
 my $version             = 0;
 my $overwrite           = 0;
-my $force               = 0;
 my $skip_existing       = 0;
 my $header              = 1;
 my $error_limit         = 50;
@@ -61,8 +60,7 @@ my $GetOptHash =
 				     [sglob($_[1])])},
    't|filetype=s'       => \$filetype,                 #OPTIONAL [auto](fasta,
 				                       #         fastq,auto)
-   'overwrite'          => \$overwrite,                #OPTIONAL [Off]
-   'force'              => \$force,                    #OPTIONAL [Off]
+   'force|overwrite'    => \$overwrite,                #OPTIONAL [Off]
    'skip-existing!'     => \$skip_existing,            #OPTIONAL [Off]
    'ignore'             => \$ignore_errors,            #OPTIONAL [Off]
    'verbose:+'          => \$verbose,                  #OPTIONAL [Off]
@@ -322,11 +320,11 @@ foreach my $set_num (0..$#$input_file_sets)
 	    my $err = "Length of sequence [$id] in file [$input_file]: " .
 	      "[$len] does not match the length of the previous " .
 		"sequence(s): [$last_len].";
-	    if($force)
+	    if($ignore_errors)
 	      {warning($err)}
 	    else
 	      {
-		error($err,"  Skipping file.  Use --force to over-ride.");
+		error($err,"  Skipping file.  Use --ignore to over-ride.");
 		last;
 	      }
 	  }
@@ -339,7 +337,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	      {warning($err)}
 	    else
 	      {
-		error($err,"  Skipping sequence.  Use --force to over-ride.");
+		error($err,"  Skipping sequence.  Use --ignore to over-ride.");
 		next;
 	      }
 	  }
