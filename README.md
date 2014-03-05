@@ -31,7 +31,7 @@ Other than this README and the LICENSE, documentation is in the scripts themselv
 DOWNLOAD
 --------
 
-https://github.com/hepcat72/hamming1/
+https://github.com/hepcat72/hamming1/archive/master.zip
 
 INSTALL
 -------
