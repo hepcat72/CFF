@@ -69,15 +69,15 @@ Other correspondence can be sent to either of the authors below directly.
 AUTHORS
 -------
 
-Robert W. Leach
-Bioinformatics Group
-Lewis Seigler Institute for Integrative Genomics
-Princeton University
+Robert W. Leach  
+Bioinformatics Group  
+Lewis Seigler Institute for Integrative Genomics  
+Princeton University  
 Princeton, NJ
 
-Mikhail Tikhonov
-Lewis Seigler Institute for Integrative Genomics
-Princeton University
+Mikhail Tikhonov  
+Lewis Seigler Institute for Integrative Genomics  
+Princeton University  
 Princeton, NJ
 
 TROUBLESHOOTING
