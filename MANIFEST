@@ -1,0 +1,8 @@
+LICENSE.md
+Makefile.PL
+MANIFEST
+README.md
+sample/6_1.drp.fna
+src/errorRates.pl
+src/neighbors.pl
+src/nZeros.pl
