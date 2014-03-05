@@ -3,14 +3,6 @@ Created: 2/12/2014
 Copyright 2014
 
 
-MANIFEST
---------
-
-errorRates.pl
-neighbors.pl
-nZeros.pl
-README.md - This file
-
 DESCRIPTION
 -----------
 
@@ -28,7 +20,7 @@ The starting sequence file must have abundance values on the deflines.  In other
 LICENSE
 -------
 
-Read LICENSE
+Read LICENSE.md
 
 DOCUMENTATION
 -------------
@@ -43,7 +35,9 @@ https://github.com/hepcat72/hamming1/
 INSTALL
 -------
 
-The scripts are ready to use, although if you have a non-default path to your perl installation, you may need to change the first line of each file to reflect the non-standard path.  There are no dependencies outside of the default perl modules.  It has been tested with perl version 5.16.2.
+perl Makefile.PL
+make
+make install
 
 EXAMPLE
 -------
@@ -52,32 +46,32 @@ Test data has been provided, so it has been included in this example run:
 
 	cd hamming1
 
-	head test/input.fa
+	head sample/6_1.drp.fna
 
->6_1_5;ee=0.053;size=114430;
-TACGTAGGGTGCGAGCGTTAATCGGAATTACTGGGCGTAAAGCGAGCGCAGACGGTTACTTAAGCAGGATGTGAAATCCC
-CGGGCTCAACCTGGGAACTGCGTTCTGAACTGGGTGACTAGAGTGTGTCA
->6_1_16;ee=0.038;size=61240;
-TACGGAGGGTGCGAGCGTTAATCGGAATAACTGGGCGTAAAGGGCACGCAGGCGGTGACTTAAGTGAGGTGTGAAAGCCC
-CGGGCTTAACCTGGGAATTGCATTTCATACTGGGTCGCTAGAGTACTTTA
->6_1_1;ee=0.049;size=57755;
+>6_1_1;ee=0.049;size=2192;
 TACGTATGTCACAAGCGTTATCCGGATTTATTGGGCGTAAAGCGCGTCTAGGTGGTTATGTAAGTCTGATGTGAAAATGC
 AGGGCTCAACTCTGTATTGCGTTGGAAACTGCATGACTAGAGTACTGGAG
->6_1_6;ee=0.053;size=20749;
+>6_1_16;ee=0.038;size=2190;
+TACGGAGGGTGCGAGCGTTAATCGGAATAACTGGGCGTAAAGGGCACGCAGGCGGTGACTTAAGTGAGGTGTGAAAGCCC
+CGGGCTTAACCTGGGAATTGCATTTCATACTGGGTCGCTAGAGTACTTTA
+>6_1_6;ee=0.053;size=2048;
+TACGGAAGGTCCAGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCTGGAGATTAAGTGTGTTGTGAAATGTA
+GACGCTCAACGTCTGAATTGCAGCGCATACTGGTTTCCTTGAGTACGCAC
+>6_1_5;ee=0.053;size=1701;
 
-	./neighbors.pl -i /mypath/input.fa -o .neb
+	./neighbors.pl -i sample/6_1.drp.fna -o .neb
 
-	./errorRates.pl -i /mypath/input.fa -n /mypath/input.fa.neb -h .hst
+	./errorRates.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.neb -h .hst
 
-(at this point, you may plot the histogram data in /mypath/input.fa.hst to select a z score cutoff.  We'll use 3.5 in the next step.)
+(at this point, you may plot the histogram data in sample/6_1.drp.fna.hst to select a z score cutoff.  We'll use 3.5 in the next step.)
 
-	./errorRates.pl -i /mypath/input.fa -n /mypath/input.fa.neb -z 3.5 -o .err
+	./errorRates.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.neb -z 3.5 -o .err
 
-	./nZeros.pl -i /mypath/input.fa -n /mypath/input.fa.neb -r /mypath/input.fa.err -o .n0
+	./nZeros.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.neb -r sample/6_1.drp.fna.err -o .n0
 
 You will end up with output that looks like this:
 
-	head input.fa.n0
+	head sample/6_1.drp.fna.n0
 
 #nZeros.pl Version 1.7
 # Created: 2/18/2014
