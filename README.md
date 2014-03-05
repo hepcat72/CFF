@@ -1,6 +1,6 @@
 hamming1 README
 ===============
-Created: 2/12/2014
+Created: 2/12/2014  
 Copyright 2014
 
 
