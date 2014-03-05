@@ -21,7 +21,7 @@ The starting sequence file must have abundance values on the deflines.  In other
 LICENSE
 -------
 
-Read LICENSE.md
+Read LICENSE
 
 DOCUMENTATION
 -------------
