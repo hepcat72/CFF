@@ -57,8 +57,6 @@ Test data has been provided, so it has been included in this example run:
 
 	./nZeros.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.neb -r sample/6_1.drp.fna.err -o .n0
 
-You will end up with output that looks like this:
-
 CONTACT
 -------
 
@@ -76,13 +74,11 @@ Bioinformatics Group
 Lewis Seigler Institute for Integrative Genomics
 Princeton University
 Princeton, NJ
-rleach@genomics.princeton.edu
 
 Mikhail Tikhonov
 Lewis Seigler Institute for Integrative Genomics
 Princeton University
 Princeton, NJ
-tikhonov@princeton.edu
 
 TROUBLESHOOTING
 ---------------
