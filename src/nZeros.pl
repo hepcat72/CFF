@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.1';
+my $software_version_number = '1.8';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -31,6 +31,7 @@ local $SIG{__WARN__} = sub {my $err = $_[0];chomp($err);
 #Declare & initialize variables.  Provide default values here.
 my($outfile_suffix); #Not defined so input can be overwritten
 my $input_files         = [];
+my $abund_files         = [];
 my $outdirs             = [];
 my $current_output_file = '';
 my $help                = 0;
@@ -38,7 +39,7 @@ my $adv_help            = 0;
 my $version             = 0;
 my $overwrite           = 0;
 my $skip_existing       = 0;
-my $header              = 1;
+my $header              = 0;
 my $error_limit         = 50;
 my $dry_run             = 0;
 my $use_as_default      = 0;
@@ -51,6 +52,8 @@ my $value_subst_str     = '__VALUE_HERE__';
 my $append_delimiter    = "N0=$value_subst_str;";
 my $sigdig              = 3;
 my $err_files           = [];
+my $seq_id_pattern      = '^\s*[>\@]\s*([^;]+)';
+my($do_median,$do_mean);
 
 #These variables (in main) are used by the following subroutines:
 #verbose, error, warning, debug, getCommand, quit, and usage
@@ -62,22 +65,28 @@ my $ignore_errors = 0;
 my @user_defaults = getUserDefaults(1);
 
 my $GetOptHash =
-  {'i|sequence-file=s'        => sub {push(@$input_files,   #REQUIRED unless <>
-					   [sglob($_[1])])},#       is supplied
+  {'i|seq-file=s'             => sub {push(@$input_files,   #REQUIRED unless <>
+					   [sglob($_[1])])},# or -u is supplied
    '<>'                       => sub {push(@$input_files,   #REQUIRED unless -i
-					   [sglob($_[0])])},#       is supplied
+					   [sglob($_[0])])},# or -u is supplied
+   'u|abundance-file=s'       => sub {push(@$abund_files,   #REQUIRED unless <>
+					   [sglob($_[1])])},# or -i is supplied
    'n|neighbors-file=s'       => sub {push(@$ham_files,     #REQUIRED
 					   [sglob($_[1])])},
    'r|error-rates-file=s'     => sub {push(@$err_files,     #REQUIRED
 					   [sglob($_[1])])},
    't|sequence-filetype=s'    => \$filetype,                #OPTIONAL [auto]
 				                            #(fasta,fastq,auto)
-   'p|abundance-pattern=s'    => \$abundance_pattern,       #OPTIINAL
+   'p|abundance-pattern=s'    => \$abundance_pattern,       #OPTIONAL
                                                             #     [size=(\d+);]
-   'r|use-reverse-spillover!' => \$reverse_spillover,       #OPTIONAL [Off]
+   'q|seq-id-pattern=s'       => \$seq_id_pattern,          #OPTIONAL [^\s*
+                                                            #[>\@]\s*([^;]+)]
+   'use-reverse-spillover!'   => \$reverse_spillover,       #OPTIONAL [Off]
    'd|append-delimiter=s'     => \$append_delimiter,        #OPTIONAL
-				                            # [;N0=_VAL_HERE_;]
+				                            # [N0=_VAL_HERE_;]
    's|significant-digits=s'   => \$sigdig,                  #OPTIONAL [3]
+   'use-median!'              => \$do_median,               #OPTIONAL [On]
+   'use-mean!'                => \$do_mean,                 #OPTIONAL [Off]
    'o|outfile-suffix=s'       => \$outfile_suffix,          #OPTIONAL [undef]
    'outdir=s'                 => sub {push(@$outdirs,       #OPTIONAL [none]
 				     [sglob($_[1])])},
@@ -207,12 +216,22 @@ if($verbose && !defined($outfile_suffix) && isStandardOutputToTerminal())
 	   'redirect output to a file, or supply an outfile suffix (-o).')}
 
 #Make sure there is input
-if(scalar(@$input_files) == 0 && isStandardInputFromTerminal())
+if(scalar(@$input_files) == 0 && scalar(@$abund_files) == 0 &&
+   isStandardInputFromTerminal())
   {
     error('No input files detected.');
     usage(1);
     quit(-4);
   }
+
+if(scalar(@$abund_files) && scalar(@$input_files))
+  {
+    error("Sequence files (-i) and adundance files (-u) are mutually ",
+	  "exclusive.");
+    quit(5);
+  }
+
+my $tab_mode = scalar(scalar(@$abund_files)) ? 1 : 0;
 
 #Make sure that an outfile suffix has been supplied if an outdir has been
 #supplied
@@ -226,7 +245,7 @@ if(scalar(@$outdirs) && !defined($outfile_suffix))
 
 #Get all the corresponding groups of files and output directories to process
 my($input_file_sets,
-   $outfile_stub_sets) = getFileSets($input_files,
+   $outfile_stub_sets) = getFileSets(($tab_mode ? $abund_files : $input_files),
                                      $ham_files,
 				     $err_files,
 				     $outdirs);
@@ -288,16 +307,45 @@ if($abundance_pattern =~ /^\s*$/)
 elsif($abundance_pattern !~ /(?<!\\)\((?!\?[adluimsx\-\^]*:).*(?<!\\)\)/)
   {$abundance_pattern = '(' . $abundance_pattern . ')'}
 
+if($seq_id_pattern ne '' &&
+   $seq_id_pattern !~ /(?<!\\)\((?!\?[adluimsx\-\^]*:)/)
+  {$seq_id_pattern = '(' . $seq_id_pattern . ')'}
+
 if($sigdig !~ /^\d+$/)
   {
     error("Invalid number of significant digits: [$sigdig].  Must be an ",
 	  "unsigned integer.");
+    quit(4);
   }
 
 if($append_delimiter !~ /./)
   {warning("The append delimiter (-d) is empty.  The N0 value on the output ",
 	   "deflines might be difficult to distinguish from the rest of the ",
 	   "line.")}
+
+if(!defined($do_median))
+  {
+    if(defined($do_mean) && $do_mean)
+      {$do_median = 0}
+    else
+      {$do_median = 1}
+  }
+
+if(!defined($do_mean))
+  {
+    if(defined($do_median) && $do_median)
+      {$do_mean = 0}
+    else
+      {$do_mean = 1}
+  }
+
+if($do_median && $do_mean)
+  {
+    error("Cannot use both the median and the mean of the error rates to ",
+	  "calculate N0.  --use-median and --use-mean are mutually ",
+	  "exclusive.");
+    quit(5);
+  }
 
 #If output is going to STDOUT instead of output files with different extensions
 #or if STDOUT was redirected, output run info once
@@ -308,9 +356,17 @@ verbose('[STDOUT] Opened for all output.') if(!defined($outfile_suffix));
 if(!isStandardOutputToTerminal() && $header)
   {print(getVersion(),"\n",
 	 '#',scalar(localtime($^T)),"\n",
-	 '#',scalar(getCommand(1)),"\n");}
+	 '#',scalar(getCommand(1)),"\n",
+	 ($tab_mode ? "#GlobalID\tAbundance\tN0\n" : ''));}
 
-my $input_file = '';
+my $input_file            = '';
+my $seq_hash              = {}; #$sg->{file}->{ID}->[def,seq,abund,order]
+my $neighbors             = {};
+my $estimated_error_rates = {};
+my @subst_types           = sort {$a cmp $b} ('A>T','A>G','A>C',
+					      'T>A','T>G','T>C',
+					      'G>A','G>T','G>C',
+					      'C>A','C>T','C>G');
 
 #For each set of input files associated by getFileSets
 foreach my $set_num (0..$#$input_file_sets)
@@ -320,217 +376,80 @@ foreach my $set_num (0..$#$input_file_sets)
     my $err_file     = $input_file_sets->[$set_num]->[2];
     my $outfile_stub = $outfile_stub_sets->[$set_num]->[0];
 
-    openIn(*INPUT,$input_file) || next;
-
-    next if($dry_run);
-
-    my $verbose_freq   = 100;
-    my $seq_hash       = {};
-    my $abundance_hash = {};
-    my $cnt            = 0;
-    my $order          = [];
-    my $skip           = 0;
-    my $len            = 0;
-    my($rec);
-
-    #For each line in the current input file
-    while($rec = getNextSeqRec(*INPUT))
+    if($dry_run)
       {
-	$cnt++;
-	verboseOverMe("[$input_file] Reading record: [$cnt].")
-	  unless($cnt % $verbose_freq);
-
-	my($def,$seq) = @$rec;
-
-	my $id = '';
-	if($def =~ /\s*[\%\>]\s*(\S+)/)
-	  {
-	    $id = $1;
-	    push(@$order,$id);
-	    if($def =~ /$abundance_pattern/)
-	      {$abundance_hash->{$id} = $1}
-	    else
-	      {
-		error("Unable to parse abundance from defline: [$def] in ",
-		      "file: [$input_file] using pattern: ",
-		      "[$abundance_pattern].  Please either fix the defline ",
-		      "or use a different pattern to extract the abundance ",
-		      "value.  Skipping this file.");
-		$skip = 1;
-		last;
-	      }
-	  }
-	else
-	  {
-	    error("Could not parse defline in record [$cnt] of file ",
-		  "[$input_file]: [$def].  Please edit the file to contain ",
-		  "IDs and abundance values on the deflines.  Skipping this ",
-		  "file.");
-	    $skip = 1;
-	    last;
-	  }
-
-	if($len == 0)
-	  {$len = length($seq)}
-	elsif($len != length($seq))
-	  {
-	    error("Sequences in sequence file: [$input_file] are required to ",
-		  "be the same length.  Sequence [$id] in record [$cnt] is ",
-		  "length: [",length($seq),"] which is different from the ",
-		  "previous sequence(s): [$len].  Please edit the file to ",
-		  "truncate the sequences to the same length.  Skipping ",
-		  "file.");
-	    $skip = 1;
-	    last;
-	  }
-
-	if(exists($seq_hash->{$id}))
-	  {error("Sequence ID: [$id] found multiple times in input file: ",
-		 "[$input_file].  Overwriting.")}
-
-	$seq_hash->{$id} = [$def,$seq];
+	verbose("Running:\n\tsequence file [$input_file]\n\tNeighbor file ",
+		"[$ham_file]\n\tError file [$err_file]");
+	next;
       }
 
-    closeIn(*INPUT);
-
-    if(scalar(keys(%$seq_hash)) == 0)
+    if(!exists($seq_hash->{$input_file}))
       {
-	error("Unable to parse sequence file [$input_file].  Skipping.");
+	#seq_hash->{file}->{ID} = [defline,seq,abundance,order]
+
+	if($tab_mode)
+	  {$seq_hash->{$input_file} = getSeqHashFromAbund($input_file)}
+	else
+	  {$seq_hash->{$input_file} = getSeqHash($input_file)}
+
+	if(scalar(keys(%{$seq_hash->{$input_file}})) == 0)
+	  {error("Unable to parse file [$input_file].  Skipping.")}
+      }
+
+    next if(scalar(keys(%{$seq_hash->{$input_file}})) == 0);
+
+    if(!exists($neighbors->{$ham_file}))
+      {$neighbors->{$ham_file} = getNeighborsHash($ham_file,
+						  $seq_hash->{$input_file})}
+
+    next if(scalar(keys(%{$neighbors->{$ham_file}})) == 0);
+
+    #Cross-check with the seq-hash to make sure everything's accounted for
+    #We need all the neighbors of each sequence in the sequence file in order
+    #to calculate N0 for every sequence, so this enforces that the neighbors
+    #file is complete.
+    my $skip = 0;
+    my $missing_rows = [grep {!exists($neighbors->{$ham_file}->{$_})}
+			keys(%{$seq_hash->{$input_file}})];
+    my $missing_seqs = [grep {!exists($seq_hash->{$input_file}->{$_})}
+			keys(%{$neighbors->{$ham_file}})];
+    if(scalar(@$missing_rows))
+      {
+	my $sample = [scalar(@$missing_rows) > 10 ?
+		      (@{$missing_rows}[0..10],'...') :
+		      @$missing_rows];
+	error("There are [",scalar(@$missing_rows),"] missing rows ",
+	      "in the neighbors file: [$ham_file]: [",join(',',@$sample),
+	      "].  Please correct this and try again.  Skipping file.");
+	$skip = 1;
+      }
+    if(scalar(@$missing_seqs))
+      {
+	my $sample = [scalar(@$missing_seqs) > 10 ?
+		      (@{$missing_seqs}[0..10],'...') :
+		      @$missing_seqs];
+	error("There are [",scalar(@$missing_seqs),"] missing ",
+	      "sequences in the sequence file: [$input_file]: [",
+	      join(',',@$sample),"].  Please correct this and try ",
+	      "again.  Skipping file.");
 	$skip = 1;
       }
 
     next if($skip);
 
-    openIn(*HAM,$ham_file) || next;
-
-    my $line_num  = 0;
-    $verbose_freq = 100;
-    my $neighbors = {};
-
-    #For each line in the current input file
-    while(getLine(*HAM))
-      {
-	$line_num++;
-	verboseOverMe("[$ham_file] Reading line: [$line_num].")
-	  unless($line_num % $verbose_freq);
-
-	next if(/^\s*$/ || /^\s*#/);
-
-	chomp;
-
-	s/^ +//;
-	s/ +$//;
-	my @data      = split(/ *\t */,$_,-1);
-	my $mother_id = shift(@data);
-
-	if(scalar(@data) % 2)
-	  {
-	    pop(@data);
-	    error("Uneven number of columns on line [$line_num] of file ",
-		  "[$ham_file].  Chopping off last column.");
-	  }
-
-	$neighbors->{$mother_id} = [];
-	for(my $i = 0;$i < scalar(@data);$i += 2)
-	  {
-	    my $neighbor_id = $data[$i];
-	    if($data[$i + 1] =~ /^(\d+):(.)>(.)$/)
-	      {push(@{$neighbors->{$mother_id}},[$neighbor_id,$1,$2,$3])}
-	    else
-	      {
-		error("Unable to parse column [",($i + 2),"] on line ",
-		      "[$line_num] of neighbor file [$ham_file].  Please ",
-		      "correct the file and try again.  Skipping file.");
-		$skip = 1;
-		last;
-	      }
-	  }
-      }
-
-    closeIn(*HAM);
-
-    if(!$skip)
-      {
-	my $missing_rows = [grep {!exists($neighbors->{$_})} keys(%$seq_hash)];
-	my $missing_seqs = [grep {!exists($seq_hash->{$_})} keys(%$neighbors)];
-	if(scalar(@$missing_rows))
-	  {
-	    my $sample = [scalar(@$missing_rows) > 10 ?
-			  (@{$missing_rows}[0..10],'...') :
-			  @$missing_rows];
-	    error("There are [",scalar(@$missing_rows),"] missing rows ",
-		  "in the neighbors file: [$ham_file]: [",join(',',@$sample),
-		  "].  Please correct this and try again.  Skipping file.");
-	    $skip = 1;
-	  }
-	if(scalar(@$missing_seqs))
-	  {
-	    my $sample = [scalar(@$missing_seqs) > 10 ?
-			  (@{$missing_seqs}[0..10],'...') :
-			  @$missing_seqs];
-	    error("There are [",scalar(@$missing_seqs),"] missing ",
-		  "sequences in the sequence file: [$input_file]: [",
-		  join(',',@$sample),"].  Please correct this and try ",
-		  "again.  Skipping file.");
-	    $skip = 1;
-	  }
-      }
-
-    next if($skip);
-
-    openIn(*ERR,$err_file) || next;
-
-    $line_num                 = 0;
-    $verbose_freq             = 100;
-    my $estimated_error_rates = {};
-    my @subst_types           = sort {$a cmp $b} ('A>T','A>G','A>C',
-						  'T>A','T>G','T>C',
-						  'G>A','G>T','G>C',
-						  'C>A','C>T','C>G');
-
-    #For each line in the current input file
-    while(getLine(*ERR))
-      {
-	$line_num++;
-	verboseOverMe("[$err_file] Reading line: [$line_num].")
-	  unless($line_num % $verbose_freq);
-
-	next if(/^\s*$/ || /^\s*#/);
-
-	chomp;
-
-	s/^ +//;
-	s/ +$//;
-	my @data      = split(/ *\t */,$_,-1);
-	my $mother_id = shift(@data);
-	@data = grep {/\S/} map {/^e/i ? "1$_" : $_} @data;
-
-	if(scalar(@data) != 12)
-	  {
-	    pop(@data);
-	    error("Expected 12 values on line [$line_num] of file ",
-		  "[$err_file], but found [",scalar(@data),"].  Skipping.");
-	  }
-
-	for(my $i = 0;$i < scalar(@data);$i++)
-	  {$estimated_error_rates->{$mother_id}->{$subst_types[$i]} =
-	     $data[$i]}
-      }
-
-    closeIn(*ERR);
-
-    unless(exists($estimated_error_rates->{AVERAGE}))
-      {averageErrorRates($estimated_error_rates)}
+    if(!exists($estimated_error_rates->{$err_file}))
+      {$estimated_error_rates->{$err_file} = getErrorRates($err_file,
+							   \@subst_types)}
 
     ##
     ## Calculate N0 for each sequence
     ##
 
-    my $nzero_hash = {};
+    my $nzero_hash       = {};
     my $nzero_debug_hash = {};
 
     #Foreach mother sequence
-    foreach my $mother_id (keys(%$seq_hash))
+    foreach my $mother_id (keys(%{$seq_hash->{$input_file}}))
       {
 	verboseOverMe("Summing N0 for [$mother_id] neighbors.");
 
@@ -538,33 +457,53 @@ foreach my $set_num (0..$#$input_file_sets)
 	  {$nzero_hash->{$mother_id} = 0}
 
 	#Foreach neighboring sequence / substitution type / substitution positn
-	foreach my $nrec (@{$neighbors->{$mother_id}})
+	foreach my $nrec (@{$neighbors->{$ham_file}->{$mother_id}})
 	  {
 	    #next if neighboring sequence is more abundant than mother sequence
-	    next if(!$reverse_spillover && $abundance_hash->{$nrec->[0]} >
-		    $abundance_hash->{$mother_id});
+	    next if(!$reverse_spillover && $seq_hash->{$input_file}
+		    ->{$nrec->[0]}->[2] >
+		    $seq_hash->{$input_file}->{$mother_id}->[2]);
 
-	    unless(exists($estimated_error_rates->{AVERAGE}
-			  ->{"$nrec->[2]>$nrec->[3]"}))
+	    if(!exists($estimated_error_rates->{$err_file}->{AVERAGE}
+		       ->{"$nrec->[2]>$nrec->[3]"}))
 	      {
-		error("The error rate for substitution type ",
-		      "[$nrec->[2]>$nrec->[3]] from mother ID [$mother_id] ",
-		      "is missing.  Assuming it is 0.");
-		$estimated_error_rates->{AVERAGE}->{"$nrec->[2]>$nrec->[3]"} =
-		  0;
+		if($do_median &&
+		   exists($estimated_error_rates->{$err_file}->{MEDIAN}
+			  ->{"$nrec->[2]>$nrec->[3]"}))
+		  {$estimated_error_rates->{$err_file}->{AVERAGE}
+		     ->{"$nrec->[2]>$nrec->[3]"} =
+		       $estimated_error_rates->{$err_file}->{MEDIAN}
+			 ->{"$nrec->[2]>$nrec->[3]"}}
+		elsif($do_mean &&
+		      exists($estimated_error_rates->{$err_file}->{MEAN}
+			     ->{"$nrec->[2]>$nrec->[3]"}))
+		  {$estimated_error_rates->{$err_file}->{AVERAGE}
+		     ->{"$nrec->[2]>$nrec->[3]"} =
+		       $estimated_error_rates->{$err_file}->{MEAN}
+			 ->{"$nrec->[2]>$nrec->[3]"}}
+		else
+		  {
+		    error("The error rate for substitution type ",
+			  "[$nrec->[2]>$nrec->[3]] from mother ID ",
+			  "[$mother_id] is missing.  Assuming it is 0.");
+		    $estimated_error_rates->{$err_file}->{AVERAGE}
+		      ->{"$nrec->[2]>$nrec->[3]"} = 0;
+		  }
 	      }
 
 	    #n0hash->{neighboring sequence ID} += total abundance * estimated
 	    #error rate->{substitution type}
-	    $nzero_hash->{$nrec->[0]} += $abundance_hash->{$mother_id} *
-	      $estimated_error_rates->{AVERAGE}->{"$nrec->[2]>$nrec->[3]"};
+	    $nzero_hash->{$nrec->[0]} +=
+	      $seq_hash->{$input_file}->{$mother_id}->[2] *
+		$estimated_error_rates->{$err_file}->{AVERAGE}
+		  ->{"$nrec->[2]>$nrec->[3]"};
 
 	    $nzero_debug_hash->{$nrec->[0]} .=
 	      (!exists($nzero_debug_hash->{$nrec->[0]}) ||
 	       !defined($nzero_debug_hash->{$nrec->[0]}) ||
 	       $nzero_debug_hash->{$nrec->[0]} eq '' ? '' : ' + ') .
-		 "$abundance_hash->{$mother_id} * " .
-		   $estimated_error_rates->{AVERAGE}
+		 "$seq_hash->{$input_file}->{$mother_id}->[2] * " .
+		   $estimated_error_rates->{$err_file}->{AVERAGE}
 		     ->{"$nrec->[2]>$nrec->[3]"};
 	  }
       }
@@ -579,12 +518,17 @@ foreach my $set_num (0..$#$input_file_sets)
 	checkFile($current_output_file,$input_file_sets->[$set_num]) || next;
 
 	openOut(*OUTPUT,$current_output_file) || next;
+
+	print("#GlobalID\tAbundance\tN0\n") if($header && $tab_mode);
       }
 
-    my $onum = 1;
+    my $verbose_freq = 100;
+    my $onum         = 1;
 
     #Foreach mother sequence
-    foreach my $seq_id (@$order)
+    foreach my $seq_id (sort {$seq_hash->{$input_file}->{$a}->[3] <=>
+				$seq_hash->{$input_file}->{$b}->[3]}
+			keys(%{$seq_hash->{$input_file}}))
       {
 	verboseOverMe("Printing record [$onum] to [$current_output_file].")
 	  unless($onum % $verbose_freq);
@@ -596,15 +540,22 @@ foreach my $set_num (0..$#$input_file_sets)
 	    $nzero_hash->{$seq_id} = '';
 	  }
 
-	my $val                = sigdig($nzero_hash->{$seq_id},$sigdig);
-	my $tmp_delim_with_val = $append_delimiter;
+	my $val = sigdig($nzero_hash->{$seq_id},$sigdig);
 
-	unless($tmp_delim_with_val =~ s/$value_subst_str/$val/)
-	  {$tmp_delim_with_val .= $val}
+	if($tab_mode)
+	  {print("$seq_id\t$seq_hash->{$input_file}->{$seq_id}->[2]\t$val\n")}
+	else
+	  {
+	    my $tmp_delim_with_val = $append_delimiter;
 
-	#print fasta record with N0 appended
-	print("$seq_hash->{$seq_id}->[0]$tmp_delim_with_val\n",
-	      "$seq_hash->{$seq_id}->[1]\n");
+	    unless($tmp_delim_with_val =~ s/$value_subst_str/$val/)
+	      {$tmp_delim_with_val .= $val}
+
+	    #print fasta record with N0 appended
+	    print("$seq_hash->{$input_file}->{$seq_id}->[0]",
+		  "$tmp_delim_with_val\n",
+		  "$seq_hash->{$input_file}->{$seq_id}->[1]\n");
+	  }
       }
 
     closeOut(*OUTPUT) if(defined($outfile_suffix));
@@ -2594,13 +2545,14 @@ end_print
     if(!$advanced)
       {
 	print << "end_print";
-* WHAT IS THIS: This script represents the last step of a 4 step process in the
+* WHAT IS THIS: This script represents the 4th step of a 5 step process in the
                 package called 'hamming1':
 
                  1. neighbors.pl  generates a hamming distance 1 neighbors file
                  2. errorRates.pl generates a Z-Score histogram (see -h)
                  3. errorRates.pl generates error rate estimates (see -z)
                 *4. nZeros.pl     generates expected error abundances
+                 5. getReals.pl   filters sequences by N/N0 fraction
 
                 Use these scripts when you have a metagenomic sample of
                 ungapped, aligned, & same-sized sequences, to help give you an
@@ -2615,13 +2567,13 @@ end_print
                 In step 4, this script takes a set of sequences, a list of
                 their hamming distance 1 substitution neighbors (i.e. sequences
                 that differ by a single nucleotide substitution) generated by
-                neighbors.pl, and an estimates error rates file generated by
+                neighbors.pl, and an estimated error rates file generated by
                 errorRates.pl, and computes N0 for each sequence (the expected
-                abundance if the sequence was an error of another sequence).
-                The abundance value is appended to the defline of the output
-                sequence file.  If a sequence is a "real" sequence and not an
-                error derived from a real sequence, its abundance will be
-                significantly higher than N0.
+                abundance if a sequence is the result of an error of another
+                sequence).  The abundance value is appended to the defline of
+                the output sequence file.  If a sequence is a "real" sequence
+                and not an error derived from a real sequence, its abundance
+                will be significantly higher than N0.
 
                 Helpful definitions:
 
@@ -2637,6 +2589,11 @@ end_print
                 N0 ("N zero"):     The abundance of a sequence that would be
                                    expected if it is the result of a PCR
                                    substitution error.
+                N/N0:              A.k.a. the "abundance/N0" fraction.  This is
+                                   the abundance of a sequence divided by the
+                                   expected abundance if the sequence is a fake
+                                   sequence (i.e. the result of a PCR
+                                   substitution error).
                 Reverse Spillover: An error that reverses a previous error to
                                    be correct by chance, or an error that
                                    causes a real sequence to turn into a
@@ -2644,6 +2601,10 @@ end_print
                 Real sequence:     A sequence that is not the result of a PCR
                                    substitution error and is presumed to exist
                                    in the original biological sample.
+                Fake sequence:     A sequence that is deemed to be the result
+                                   of a PCR substitution error and is presumed
+                                   to not exist in the original biological
+                                   sample.
                 Z Score:           During the estimation of the error rates, a
                                    Z Score is calculated for each neighbor.  It
                                    is computed as:
@@ -2710,14 +2671,14 @@ lib_9;size=4255;	lib_7;size=4682;	62:T>C	lib_918;size=223;	121:A>G
                       mother sequence ID or the string 'AVERAGE', whose row
                       will contain the average of the error rates for each
                       substitution type across all the mother sequences.  The
-                      file will contain as many rows (plus a header and AVERAGE
-                      row) as there were top sequences specified with -e.  The
-                      values contained will vary based on the value of -z.  An
-                      optional multi-line header is recommended, as it will
-                      document the z threshold that was used, so do not supply
-                      --noheader unless you are manually tracking the z score
-                      threshold.  Note, the number of significant digits
-                      reported can be controlled with -s.
+                      file will contain as many rows (plus an optional header
+                      and MEAN/MEDIAN row) as there were top sequences
+                      specified with -e.  The values contained will vary based
+                      on the value of -z.  An optional multi-line header is
+                      recommended, as it will document the z threshold that was
+                      used, so supply --header unless you are manually tracking
+                      the z score threshold.  Note, the number of significant
+                      digits reported can be controlled with -s.
 
 * OUTPUT FORMAT: Fasta format with the N0 (expected abundance if it was an
                  error) appended to the defline.
@@ -2814,13 +2775,22 @@ sub usage
     else
       {
         print << "end_print";
-     -i|--seq-file*       REQUIRED Space-separated fasta or fastq file(s).
+     -i|--seq-file*      ~REQUIRED Space-separated fasta or fastq file(s).
                                    See -t for specifying file type.  Expands
                                    glob characters ('*', '?', etc.).  Used as a
                                    file name stub when standard input detected,
                                    -o has been supplied, and there's only 1
                                    value.  See --help for file format and
                                    advanced usage.  *No flag required.
+                                   ~Required if -u is not provided, as they are
+                                   mutually exclusive.
+     -u|--abundance-file ~REQUIRED Space-separated abundance file(s).  Expands
+                                   glob characters ('*', '?', etc.).  Used as a
+                                   file name stub when standard input detected,
+                                   -o has been supplied, and there's only 1
+                                   value.  See --help for file format and
+                                   advanced usage.  ~Required if -i is not
+                                   provided, as they are mutually exclusive.
      -n|--neighbors-file  REQUIRED Space-separated neighbors file(s).  Expands
                                    glob characters ('*', '?', etc.).  See
                                    --help for file format and advanced usage.
@@ -2833,7 +2803,8 @@ sub usage
      -t|--sequence-       OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
         filetype                   type.  Using a value other than auto will
                                    make file reading faster.  "auto" cannot be
-                                   used when redirecting a file in.
+                                   used when redirecting a file in.  Not used
+                                   with -u.
      -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
         pattern                    used to extract the abundance value from the
                                    fasta/fastq defline of the input sequence
@@ -2846,7 +2817,21 @@ sub usage
                                    entire defline, without the trailing hard
                                    return but including the '>' or '\@'
                                    character is available to match against.
-     -r|--use-reverse-    OPTIONAL By default, when calculating N0, neighbors
+                                   Not used with -u.
+     -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
+                                   expression to extract seq IDs from deflines.
+                                   The ID pattern must be surrounded by
+                                   parenthases.  If no parenthases are
+                                   provided, the entire pattern is assumed to
+                                   be the ID.  If the pattern does not match,
+                                   a default pattern that uses the first string
+                                   up to the first white space will be used.
+                                   Sequence IDs are captured this way to
+                                   allow flexibility of file format.  Note, the
+                                   entire defline, without the trailing hard
+                                   return but including the '>' or '\@'
+                                   character is available to match against.
+     --use-reverse-       OPTIONAL By default, when calculating N0, neighbors
         spillover                  that are more abundant than the mother
                                    sequence are skipped.  While there can be
                                    errors that turn a less abundant neighbor
@@ -2855,24 +2840,25 @@ sub usage
                                    unlikely errors will cause no sequence to
                                    ever have an N0 value of 0, which has
                                    disadvantages.  To include all error
-                                   possibilities, supply -r.
-     -d|--append-         OPTIONAL [;N0=$value_subst_str;] The N0 value that is
+                                   possibilities, supply this flag.
+     -d|--append-         OPTIONAL [N0=$value_subst_str;] The N0 value that is
         delimiter                  appended to the defline of the sequence file
                                    will be demilimited by this string.  If the
                                    delimiter contains the string
                                    '$value_subst_str', that string will be
                                    replaced with the N0 value so that you can
                                    control where the value in placed in the
-                                   delimiting string.
+                                   delimiting string.  Not used with -u.
      -s|--significant-    OPTIONAL [3] Number of significant digits to report
         digits                     in the output file and verbose output.  0
                                    means all digits are significant.
      -o|--outfile-suffix  OPTIONAL [nothing] Outfile extension appended to
-                                   input files.  Empty string overwrites input
-                                   files (unless --outdir  supplied).  Appends
-                                   to "STDIN" when standard input is detected
-                                   (unless a stub is provided via -i).  See
-                                   --help for file format and advanced usage.
+                                   input files (-i or -u).  Empty string
+                                   overwrites input files (unless --outdir
+                                   supplied).  Appends to "STDIN" when standard
+                                   input is detected (unless a stub is provided
+                                   via -i).  See --help for file format and
+                                   advanced usage.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
@@ -2881,8 +2867,9 @@ sub usage
      --overwrite          OPTIONAL Overwrite existing output files.
      --ignore             OPTIONAL Ignore critical errors.  Also see
                                    --overwrite or --skip-existing.
-     --noheader           OPTIONAL Do not print commented script version, date,
-                                   and command line call to each outfile.
+     --header             OPTIONAL Print commented script version, date, and
+                                   command line call at the top of each
+                                   outfile.
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
      --error-type-limit   OPTIONAL [50] Limit for each type of error/warning.
                                    0 = no limit.  Also see --quiet.
@@ -3433,9 +3420,17 @@ sub getNextSeqRec
       {
 	if($input_file eq '-')
 	  {
-	    error("`-f auto` cannot be used when the input file is supplied ",
+	    error("`-t auto` cannot be used when the input file is supplied ",
 		  "on standard input.  Please supply the exact file type.");
 	    quit(2);
+	  }
+
+	if(!-e $input_file || $input_file =~ / /)
+	  {
+	    error("`-t auto` cannot be used when the input file does not ",
+		  "exist or has a space in its name.  Please supply the ",
+		  "exact file type.");
+	    quit(3);
 	  }
 
 	my $num_fastq_defs =
@@ -3465,6 +3460,13 @@ sub getNextSeqRec
 	      }
 	    else
 	      {
+		if(!defined($main::lastfiletype) ||
+		   !exists($main::lastfiletype->{$input_file}))
+		  {
+		    error("Unable to determine file type.  Skipping file ",
+			  "[$input_file].");
+		    return(undef);
+		  }
 		warning("Unable to determine file type.  Defaulting to ",
 			"[$main::lastfiletype->{$input_file}].");
 		if($main::lastfiletype->{$input_file} eq 'fasta')
@@ -3657,7 +3659,7 @@ sub averageErrorRates
   {
     my $estimated_error_rates = $_[0];
 
-    if(exists($estimated_error_rates->{AVERAGE}))
+    if(exists($estimated_error_rates->{AVERAGE}) && $do_mean)
       {
 	error("Average already exists.");
 	return(1);
@@ -3672,7 +3674,19 @@ sub averageErrorRates
     #Foreach substitution type
     foreach my $subst_type (@subst_types)
       {
-	foreach my $mother_id (grep {$_ ne 'AVERAGE'}
+	if($do_median)
+	  {
+	    my $median = getMedian([map {$estimated_error_rates->{$_}
+					   ->{$subst_type}}
+				    grep {$_ ne 'AVERAGE' && $_ ne 'MEDIAN' &&
+					    $_ ne 'MEAN'}
+				    keys(%$estimated_error_rates)]);
+	    $estimated_error_rates->{AVERAGE}->{$subst_type} = $median;
+	    next;
+	  }
+
+	foreach my $mother_id (grep {$_ ne 'AVERAGE' && $_ ne 'MEDIAN' &&
+				       $_ ne 'MEAN'}
 			       keys(%$estimated_error_rates))
 	  {
 	    if(!exists($estimated_error_rates->{$mother_id}->{$subst_type}))
@@ -3691,4 +3705,321 @@ sub averageErrorRates
       }
 
     return(0);
+  }
+
+sub getsigdig
+  {
+    my $num = $_[0];
+    $num =~ s/[+\-]+//g;
+    $num =~ s/e.*//i;
+    $num =~ s/^0+//;
+    $num =~ s/\.//;
+    return(length($num));
+  }
+
+sub getSeqHash
+  {
+    my $input_file = $_[0];
+    my $seq_hash   = {};
+
+    openIn(*INPUT,$input_file) || return($seq_hash);
+
+    my $verbose_freq      = 100;
+    my $cnt               = 0;
+    my $skip              = 0;
+    my $len               = 0;
+    my($rec);
+
+    #For each line in the current input file
+    while($rec = getNextSeqRec(*INPUT))
+      {
+	$cnt++;
+	verboseOverMe("[$input_file] Reading record: [$cnt].")
+	  unless($cnt % $verbose_freq);
+
+	my($def,$seq) = @$rec;
+	my $id        = '';
+	my $abundance = 0;
+
+	if($def =~ /\s*[\%\>]\s*(\S+)/)
+	  {
+	    my $default_id = $1;
+
+	    if($seq_id_pattern ne '' && $def =~ /$seq_id_pattern/)
+	      {$id = $1}
+	    else
+	      {
+		$id = $default_id;
+		warning("Unable to parse seqID from defline: [$def] ",
+			"in file: [$input_file] using pattern: ",
+			"[$seq_id_pattern].  Please either fix the ",
+			"defline or use a different pattern to extract ",
+			"the seqID value.  Using default ID: [$id].  ",
+			"Use \"-q ''\" to to avoid this warning.")
+		  if($seq_id_pattern ne '');
+	      }
+
+	    if($def =~ /$abundance_pattern/)
+	      {$abundance = $1}
+	    else
+	      {
+		error("Unable to parse abundance from defline: [$def] in ",
+		      "file: [$input_file] using pattern: ",
+		      "[$abundance_pattern].  Please either fix the defline ",
+		      "or use a different pattern to extract the abundance ",
+		      "value.  Skipping this file.");
+		$skip = 1;
+		last;
+	      }
+	  }
+	else
+	  {
+	    error("Could not parse defline in record [$cnt] of file ",
+		  "[$input_file]: [$def].  Please edit the file to contain ",
+		  "IDs and abundance values on the deflines.  Skipping this ",
+		  "file.");
+	    $skip = 1;
+	    last;
+	  }
+
+	if($len == 0)
+	  {$len = length($seq)}
+	elsif($len != length($seq))
+	  {
+	    error("Sequences in sequence file: [$input_file] are required to ",
+		  "be the same length.  Sequence [$id] in record [$cnt] is ",
+		  "length: [",length($seq),"] which is different from the ",
+		  "previous sequence(s): [$len].  Please edit the file to ",
+		  "truncate the sequences to the same length.  Skipping ",
+		  "file.");
+	    $skip = 1;
+	    last;
+	  }
+
+	if(exists($seq_hash->{$id}))
+	  {error("Sequence ID: [$id] found multiple times in input file: ",
+		 "[$input_file].  Overwriting.")}
+
+	$seq_hash->{$id} = [$def,$seq,$abundance,$cnt];
+      }
+
+    closeIn(*INPUT);
+
+    return($skip ? {} : $seq_hash);
+  }
+
+sub getNeighborsHash
+  {
+    my $ham_file  = $_[0];
+    my $seq_hash  = $_[1];
+    my $neighbors = {};
+
+    openIn(*HAM,$ham_file) || return($neighbors);
+
+    my $line_num     = 0;
+    my $verbose_freq = 100;
+    my $skip         = 0;
+
+    #For each line in the current input file
+    while(getLine(*HAM))
+      {
+	$line_num++;
+	verboseOverMe("[$ham_file] Reading line: [$line_num].")
+	  unless($line_num % $verbose_freq);
+
+	next if(/^\s*$/ || /^\s*#/);
+
+	chomp;
+
+	s/^ +//;
+	s/ +$//;
+	my @data      = split(/ *\t */,$_,-1);
+	my $mother_id = shift(@data);
+
+	if(scalar(@data) % 2)
+	  {
+	    pop(@data);
+	    error("Uneven number of columns on line [$line_num] of file ",
+		  "[$ham_file].  Chopping off last column.");
+	  }
+
+	$neighbors->{$mother_id} = [];
+	for(my $i = 0;$i < scalar(@data);$i += 2)
+	  {
+	    my $neighbor_id = $data[$i];
+	    if($data[$i + 1] =~ /^(\d+):(.)>(.)$/)
+	      {push(@{$neighbors->{$mother_id}},
+		    [$neighbor_id,$1,$2,$3])}
+	    else
+	      {
+		error("Unable to parse column [",($i + 2),"] on line ",
+		      "[$line_num] of neighbor file [$ham_file].  Please ",
+		      "correct the file and try again.  Skipping file.");
+		$skip = 1;
+		last;
+	      }
+	  }
+      }
+
+    closeIn(*HAM);
+
+    return($skip ? {} : $neighbors);
+  }
+
+sub getErrorRates
+  {
+    my $err_file              = $_[0];
+    my $subst_types           = $_[1];
+    my $estimated_error_rates = {};
+
+    openIn(*ERR,$err_file) || return($estimated_error_rates);
+
+    my $line_num     = 0;
+    my $verbose_freq = 100;
+
+    #For each line in the current input file
+    while(getLine(*ERR))
+      {
+	$line_num++;
+	verboseOverMe("[$err_file] Reading line: [$line_num].")
+	  unless($line_num % $verbose_freq);
+
+	next if(/^\s*$/ || /^\s*#/);
+
+	chomp;
+
+	s/^ +//;
+	s/ +$//;
+	my @data      = split(/ *\t */,$_,-1);
+	my $mother_id = shift(@data);
+	@data = grep {/\S/} map {/^e/i ? "1$_" : $_} @data;
+
+	if(scalar(@data) != 12)
+	  {
+	    error("Expected 12 values on line [$line_num] of file ",
+		  "[$err_file], but found [",scalar(@data),"].  Skipping ",
+		  "missing/extra substitution types.");
+	    pop(@data) while(scalar(@data) > 12);
+	  }
+
+	for(my $i = 0;$i < scalar(@data);$i++)
+	  {$estimated_error_rates->{$mother_id}->{$subst_types->[$i]} =
+	     $data[$i]}
+      }
+
+    closeIn(*ERR);
+
+    #Get the median or mean
+    if(!exists($estimated_error_rates->{AVERAGE}) || $do_median)
+      {
+	if($do_median &&
+	   exists($estimated_error_rates->{MEDIAN}))
+	  {$estimated_error_rates->{AVERAGE} =
+	     {%{$estimated_error_rates->{MEDIAN}}}}
+	elsif($do_mean &&
+	      exists($estimated_error_rates->{MEAN}))
+	  {$estimated_error_rates->{AVERAGE} =
+	     {%{$estimated_error_rates->{MEAN}}}}
+	else
+	  {averageErrorRates($estimated_error_rates)}
+      }
+
+    return($estimated_error_rates);
+  }
+
+sub getSeqHashFromAbund
+  {
+    my $input_file = $_[0];
+    my $seq_hash   = {};
+
+    openIn(*INPUT,$input_file) || return($seq_hash);
+
+    my $verbose_freq      = 100;
+    my $cnt               = 0;
+    my $skip              = 0;
+    my($rec);
+
+    #For each line in the current input file
+    while(getLine(*INPUT))
+      {
+	$cnt++;
+	verboseOverMe("[$input_file] Reading line: [$cnt].")
+	  unless($cnt % $verbose_freq);
+
+	#Skip if line is commented or empty
+	next if(/^\s*#/ || /^\s*$/);
+
+	s/^ +//;
+	s/ +$//;
+	my($id,$abundance) = split(/ *\t */,$_,-1);
+
+	if(!defined($abundance))
+	  {
+	    error("Not enough data on line [$cnt] of file [$input_file].  ",
+		  "Skipping.");
+	    next;
+	  }
+	if($abundance !~ /^\d+$/)
+	  {
+	    error("Invalid abundance value: [$abundance] on line [$cnt] of ",
+		  "file [$input_file].  Skipping.");
+	    next;
+	  }
+	if($id !~ /\S/)
+	  {
+	    error("Invalid GlobalID: [$id] on line [$cnt] of file ",
+		  "[$input_file].  Skipping.");
+	    next;
+	  }
+
+	if(exists($seq_hash->{$id}))
+	  {
+	    error("ID [$id] encountered multiple times in file ",
+		  "[$input_file].  Skipping line [$cnt].");
+	  }
+	else
+	  {$seq_hash->{$id} = ['','',$abundance,$cnt]}
+      }
+
+    closeIn(*INPUT);
+
+    return($seq_hash);
+  }
+
+sub getMedian
+  {
+    my $values_array = $_[0];
+    my $median       = 0;
+
+    if(ref($values_array) ne 'ARRAY' ||
+       scalar(grep {ref(\$_) ne 'SCALAR'} @$values_array) ||
+       scalar(@$values_array) == 0)
+      {
+	error("Invalid values array sent in [@$values_array].");
+	return(undef);
+      }
+
+    my $sorted_vals = [sort {$a <=> $b} @$values_array];
+
+    if(scalar(@$values_array) % 2)
+      {
+	my $mid_index = int(scalar(@$values_array) / 2) - 1;
+	$median = $sorted_vals->[$mid_index];
+	debug("Array size = [",scalar(@$values_array),"].  ",
+	      "Middle index = [$mid_index].  Median = [$median].");
+      }
+    else
+      {
+	my $mid_index_left  = int(scalar(@$values_array) / 2) - 1;
+	my $mid_index_right = int(scalar(@$values_array) / 2);
+	$median = ($sorted_vals->[$mid_index_left] +
+		   $sorted_vals->[$mid_index_right]) / 2;
+	debug("Array size = [",scalar(@$values_array),"].  ",
+	      "Middle index left = [$mid_index_left].  Middle index right = ",
+	      "[$mid_index_right].  Median = [(",
+	      "$sorted_vals->[$mid_index_left] + ",
+	      "$sorted_vals->[$mid_index_right]) / 2 = $median].");
+      }
+
+    return($median);
   }
