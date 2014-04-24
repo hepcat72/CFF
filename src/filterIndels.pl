@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.6';
+my $software_version_number = '1.11';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -47,12 +47,14 @@ my $use_as_default      = 0;
 my $defaults_dir        = (sglob('~/.rpst'))[0];
 my $seq_id_pattern      = '^\s*[>\@]\s*([^;]+)';
 my $indel_sep           = ',';
+my $parent_sep          = ':';
 my $value_subst_str     = '__VALUE_HERE__';
 my $append_delimiter    = "Indels=$value_subst_str;";
 my $heuristic_str_size  = 11;
 my $abundance_pattern   = 'size=(\d+);';
 my $filetype            = 'auto';
 my $muscle              = 'muscle';
+my $muscle_gaps         = 0;
 
 #These variables (in main) are used by the following subroutines:
 #verbose, error, warning, debug, getCommand, quit, and usage
@@ -85,7 +87,9 @@ my $GetOptHash =
    't|filetype=s'            => \$filetype,              #OPTIONAL [auto]
 				                         #   (fasta,fastq,auto)
    'fakes-indel-separator=s' => \$indel_sep,             #OPTIONAL [,]
+   'fakes-parent-separator=s'=> \$parent_sep,            #OPTIONAL [:]
    'y|muscle-exe=s'          => \$muscle,                #OPTIONAL [muscle]
+   'use-muscle-gaps!'        => \$muscle_gaps,           #OPTIONAL [Off]
    'overwrite'               => \$overwrite,             #OPTIONAL [Off]
    'skip-existing!'          => \$skip_existing,         #OPTIONAL [Off]
    'force'                   => \$force,                 #OPTIONAL [Off]
@@ -324,7 +328,10 @@ foreach my $set_num (0..$#$input_file_sets)
 
     @$seq_recs = abundanceSort($seq_recs);
 
-    my $groups = groupIndels($seq_recs,$heuristic_str_size,$group_outfile);
+    my $groups = groupIndels($seq_recs,
+			     $heuristic_str_size,
+			     $group_outfile,
+			     $muscle_gaps);
 
     filterIndels($groups,$reals_outfile,$fakes_outfile);
   }
@@ -3089,6 +3096,10 @@ rleach\@genomics.princeton.edu
                 alignment tool called muscle to determine the existence of
                 indels and substitutions.
 
+                This script represents the last step of a 7 step process in
+                the package called 'cff' (cluster free filtering).  Please
+                refer to the README for general information about the package.
+
 * INPUT FORMAT: A Fasta or Fastq sequence file whose deflines contain abundance
                 values.  The default format for abundance values is "size=#;"
                 where "#" is an integer representing the abundance value.
@@ -3132,7 +3143,7 @@ TACGTAGGTCCCGAGCGTTGTCCGGATTTATTGGGCGTAAAGCGAGCGCAGGCGGTTAGATAAGTCTGAAGTTAAAGGCT
 # Last modified: Fri Apr  4 13:33:24 2014
 #Fri Apr  4 13:33:29 2014
 #/usr/bin/perl ../src/filterIndels.pl -i 6_1.drp.fna.n0s-qtest.reals -o .reals --verbose --overwrite -j .indels -f .fakes
-#ID     GroupNum        indelDescriotion(*=GroupSeed)
+#ID     GroupNum        indelDescription(*=GroupSeed)
 6_1_1   1       *
 6_1_16  2       *
 6_1_6   3       *
@@ -3263,27 +3274,16 @@ sub usage
 	if(!$advanced_mode)
 	  {
 	    print << "end_print";
-     -i|--input-file      REQUIRED Space-separated input file(s).  See --help
-                                   for input file format.
+     -i|--input-file      REQUIRED Fasta/fastq sequence file(s).  See --help.
      -o|--outfile-suffix| OPTIONAL [stdout] Outfile extension appended to -i to
-        --reals-suffix             output "real" sequences.  See --help for
-                                   output file format.
+        --reals-suffix             output "real" sequences.  See --help.
      -f|--fakes-suffix    OPTIONAL [no output] Outfile extension appended to
-                                   -i to output "fake" sequences.  See --help
-                                   for output file format.
+                                   -i to output "fake" sequences.  See --help.
      -j|--groupfile-      OPTIONAL [no output] Outfile extension appended to
         suffix                     -i to output indel grouping information.
-                                   See --help for output file format.
+                                   See --help.
      -v|--heuristic-end-  OPTIONAL [11] Only look for indels between sequences
         size                       whose last -v characters differ.
-     -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
-                                   expression to extract seq IDs from deflines.
-     -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
-        pattern                    to extract abundance values from deflines.
-     -d|--append-         OPTIONAL [Indels=$value_subst_str;] Delimiter used
-        delimiter                  to append indel descriptions to deflines.
-     --fakes-indel-       OPTIONAL [,] The delimiter used to join multiple
-       separator                   indel descriptions.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
@@ -3295,22 +3295,20 @@ sub usage
      --force              OPTIONAL Ignore critical errors.  Also see
                                    --overwrite or --skip-existing.
      --header             OPTIONAL Print a header at the top of each outfile.
-     --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
-     --error-type-limit   OPTIONAL [50] Limit for each type of error/warning.
-                                   0 = no limit.  Also see --quiet.
      --dry-run            OPTIONAL Run without generating output files.
      --version            OPTIONAL Print version info.
      --use-as-default     OPTIONAL Save the command line arguments.
      --help               OPTIONAL Print info and format descriptions.
      --extended           OPTIONAL Print extended usage/help/version/header
                                    when supplied with corresponding the flags.
-Run with just --extended for more descriptive usage output.
+Run with just --extended for advanced options & more details.
 end_print
 	  }
 	else #Advanced options/extended usage output
 	  {
 	    print << "end_print";
-     -i|--input-file*     REQUIRED Space-separated input file(s) inside quotes
+     -i|--input-file*     REQUIRED Space-separated fasta or fastq sequence
+                                   file(s) inside quotes
                                    (e.g. -i "*.txt *.text").  Expands standard
                                    bsd glob characters (e.g. '*', '?', etc.).
                                    When standard input detected, -o has been
@@ -3374,10 +3372,12 @@ end_print
         size                       whose last -v characters differ.  This is
                                    offered as a heuristic simply to speed up
                                    the script.  All sequences are assumed to
-                                   have be generally alignable at the start,
-                                   but if there is an indel, they will differ
-                                   at the end.  To compare all sequences in a
-                                   pair-wise fashion, set this option to 0.
+                                   be generally alignable at the start, but if
+                                   there is an indel, they will differ at the
+                                   end.  Note a reciprocal insertion/deletion
+                                   pair can be overlooked using this heuristic.
+                                   To compare all sequences, set this option to
+                                   0.
      -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
                                    expression to extract seq IDs from deflines.
                                    The ID pattern must be surrounded by
@@ -3409,17 +3409,30 @@ end_print
                                    demilimited by this string.  If the
                                    delimiter contains the string
                                    '$value_subst_str', that string will be
-                                   replaced with the N0 value so that you can
-                                   control where the value in placed in the
+                                   replaced with the indel descriptions so that
+                                   you can control where they are placed in the
                                    delimiting string.
      --fakes-indel-       OPTIONAL [,] The delimiter joining multiple indel
        separator                   descriptions.  This creates the full string
                                    value that will be inserted into the
                                    substitution string of -d.
+     --fakes-parent-      OPTIONAL [:] The indel descriptions (see -d) are
+       separator                   prepended by the ID of the more abundant
+                                   parent sequence with which the sequence of
+                                   each record differs by inly indels.  The
+                                   prepended string will be followed by this
+                                   character and the indel descriptions
+                                   delimited by the --fakes-indel-separator.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
                                    type.  Using this instead of auto will make
                                    file reading faster.  "auto" cannot be used
                                    when redirecting a file in.
+     -y|--muscle-exe      OPTIONAL [muscle] The command to use to call muscle.
+     --use-muscle-gaps    OPTIONAL Use muscle's default context-dependent gap
+                                   penalties instead of our default static gap
+                                   penalties of `-gapopen -400 -gapextend -399`
+                                   designed to target homopolymer indels (and
+                                   treat the terminal gaps properly).
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
      --skip-existing      OPTIONAL Skip existing output files.
@@ -3474,6 +3487,7 @@ sub getMuscleAlignment
   {
     my $seq1       = $_[0];
     my $seq2       = $_[1];
+    my $musclegaps = defined($_[2]) ? $_[2] : $muscle_gaps;
     my $muscle_exe = defined($muscle) && $muscle ne '' ? $muscle : 'muscle';
 
     if(!defined($seq1) || !defined($seq2) || $seq1 eq '' || $seq2 eq '')
@@ -3493,7 +3507,8 @@ sub getMuscleAlignment
     my $stderr = \*ALNERR;
 
     my $muscle_command = "$muscle_exe -in /dev/stdin -out /dev/stdout " .
-      "-maxiters 1 -diags -quiet -clw";
+      "-maxiters 1 -diags -quiet -clw" .
+	($musclegaps ? '' : ' -gapopen -400 -gapextend -399');
 
     my $pid = open3(\*ALNIN, $stdout, $stderr, $muscle_command);
 
@@ -3738,7 +3753,7 @@ sub isHomopolymer
 #describing an individual indel.  Lesser abundant sequences will always be
 #grouped with the most abundant sequence they happen to differ with by only
 #indels.  If two or more sequences of the same abundance differ with the same
-#lesser abundant sequence, the lesser abundant sequence will arbitrearily be
+#lesser abundant sequence, the lesser abundant sequence will arbitrarily be
 #grouped with the first more abundant sequence encountered.  All sequences are
 #assumed to be the same length
 #Uses globals: dry_run, indel_sep
@@ -3747,6 +3762,7 @@ sub groupIndels
     my $ordered_recs       = $_[0];
     my $heuristic_str_size = $_[1]; #0 = no heuristic
     my $outfile            = $_[2];
+    my $muscle_gaps        = $_[3];
     my $groups             = [];
     my $already_added      = {};
     my $group_num          = 1;
@@ -3760,7 +3776,7 @@ sub groupIndels
 	if(!checkFile($outfile) || !openOut(*GROUPFILE,$outfile,0))
 	  {$write_ok = 0}
 	else
-	  {print GROUPFILE ("#ID\tGroupNum\tindelDescriotion(*=GroupSeed)\n")
+	  {print GROUPFILE ("#ID\tGroupNum\tindelDescription(*=GroupSeed)\n")
 	     if($header && !$dry_run)}
       }
 
@@ -3771,6 +3787,31 @@ sub groupIndels
 	my $rec1 = $ordered_recs->[$i];
 	my $def1 = $rec1->[0];
 	my $seq1 = $rec1->[1];
+
+	my $parent_id = '';
+	if($def1 =~ /\s*[\%\>]\s*(\S+)/)
+	  {
+	    my $default_id = $1;
+
+	    if($seq_id_pattern ne '' && $def1 =~ /$seq_id_pattern/)
+	      {$parent_id = $1}
+	    else
+	      {
+		$parent_id = $default_id;
+		warning("Unable to parse seqID from defline: [$def1] ",
+			"using pattern: [$seq_id_pattern].  Please ",
+			"either fix the defline or use a different ",
+			"pattern to extract the seqID value.  Using ",
+			"default ID: [$default_id].  Use \"-q ''\" to to ",
+			"avoid this warning.") if($seq_id_pattern ne '');
+	      }
+	  }
+	else
+	  {
+	    warning("Could not parse defline [$def1].  Using entire ",
+		    "defline.");
+	    $parent_id = $def1;
+	  }
 
 	verboseOverMe("Checking abundant sequence [$def1].");
 
@@ -3807,7 +3848,8 @@ sub groupIndels
 	      {
 		#$indels is an array of strings describing each indel
 		my($numnontermindels,$numsubs,$indels) =
-		  clustalw2indelsSubs(getMuscleAlignment($seq1,$seq2));
+		  clustalw2indelsSubs(getMuscleAlignment($seq1,$seq2,
+							 $muscle_gaps));
 
 		debug("$def1 & $def2 have $numnontermindels indels and ",
 		      "$numsubs substitutions.");
@@ -3815,10 +3857,25 @@ sub groupIndels
 		if($numsubs == 0 && $numnontermindels)
 		  {
 		    $already_added->{$j} = 1;
-		    if(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH')
-		      {$rec2->[2]->{INDELS} = $indels}
+		    if(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH' &&
+		       exists($rec2->[2]->{PARENT}))
+		      {
+			#This must be a lesser abundant parent, so ignore
+			verbose("Note, [$def1] & [$def2] share only indels, ",
+				"but the lesser abundant [$def2] was already ",
+			        "linked with the more abundant parent [",
+				$rec2->[2]->{PARENT},'].');
+		      }
+		    #If this hash already exists but just doesn't have the
+		    #parent key (should have ABUND & ORDER keys)
+		    elsif(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH')
+		      {
+			$rec2->[2]->{PARENT} = $parent_id;
+			$rec2->[2]->{INDELS} = $indels;
+		      }
 		    else
-		      {$rec2->[2] = {INDELS => $indels}}
+		      {$rec2->[2] = {INDELS => $indels,
+				     PARENT => $parent_id}}
 		    push(@{$groups->[-1]},$rec2);
 		  }
 	      }
@@ -3948,8 +4005,10 @@ sub filterIndels
 		next if($dry_run);
 
 		print FAKES ($rec->[0],
-			     deflineAddendum($indel_error ? ['none'] :
-					     $rec->[2]->{INDELS}),
+			     deflineAddendum(($indel_error ? 'none' :
+					      $rec->[2]->{PARENT}),
+					     ($indel_error ? ['none'] :
+					      $rec->[2]->{INDELS})),
 			     "\n$rec->[1]\n") unless($dry_run);
 	      }
 	  }
@@ -3961,15 +4020,17 @@ sub filterIndels
     return($status);
   }
 
-#Uses globals: $value_subst_str, $append_delimiter, $indel_sep
+#Uses globals: $value_subst_str, $append_delimiter, $indel_sep, $parent_sep
 sub deflineAddendum
   {
-    my $indels              = $_[0]; #Value to append to defline
+    my $parent_id           = $_[0];
+    my $indels              = $_[1]; #Value to append to defline
     my $delimiter           = defined($append_delimiter) ?
       $append_delimiter : ';';
     my $substitution_string = defined($value_subst_str) ?
       $value_subst_str : '';
-    my $indel_delim         = defined($indel_sep) ? $indel_sep : ',';
+    my $indel_delim         = defined($indel_sep)  ? $indel_sep  : ',';
+    my $parent_delim        = defined($parent_sep) ? $parent_sep : ',';
 
     if(ref($indels) ne 'ARRAY' || scalar(grep {ref(\$_) ne 'SCALAR'} @$indels))
       {
@@ -3977,7 +4038,8 @@ sub deflineAddendum
 	return('');
       }
 
-    my $val = join($indel_delim,@$indels);
+    my $val = ($parent_id eq 'none' ? '' : "$parent_id$parent_delim") .
+      join($indel_delim,@$indels);
 
     if($substitution_string eq '' || $delimiter !~ /$substitution_string/)
       {$delimiter .= $_}
@@ -4704,7 +4766,9 @@ sub incompatible
 	error("The muscle executable [$muscle] appears to either not be in ",
 	      "your path, not exist, not have execute permissions, or you ",
 	      "have not created a symbolic link named 'muscle' to the full ",
-	      "name of the executable with version number.");
+	      "name of the executable with version number.  If you have not ",
+	      "installed muscle, you can find it here: http://www.drive5.com/",
+	      "muscle/downloads.htm");
 	return(1);
       }
 
