@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.4';
+my $software_version_number = '1.7';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -523,6 +523,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	my $abundance    = 0;
 	my $skip         = 0;
 	my $rec_num      = 0;
+        my $warn_dupes   = 0;
 	my($rec);
 
 	debug("Reading in [$input_file]");
@@ -612,12 +613,7 @@ foreach my $set_num (0..$#$input_file_sets)
 
 	    if(exists($seq_hash->{$input_file}) &&
 	       exists($seq_hash->{$input_file}->{$id}))
-	      {
-		error("Record [$rec_num] in sequence file [$input_file] has ",
-		      "a duplicate ID [$id].  Abundance = [$abundance].  ",
-		      "Skipping sequence.");
-		next;
-	      }
+	      {$warn_dupes++}
 
 	    $seq_hash->{$input_file}->{$id} = $abundance;
 	    $abundance_hash->{$file_key}->{$file_key2}->{SEQS}->{$seq} +=
@@ -631,6 +627,11 @@ foreach my $set_num (0..$#$input_file_sets)
 	  }
 
 	closeIn(*INPUT);
+
+    if($warn_dupes)
+      {warning("[$warn_dupes] duplicate IDs were found in sequence file ",
+	       "[$input_file].")}
+
 #      }
 
     next if($dry_run);
@@ -2451,9 +2452,20 @@ sub getFileSets
 	      {
 		foreach my $association (0..($#{$file_types_array} - 1))
 		  {
+		    debug("Adding to the set.") if($DEBUG < -99);
 		    push(@{$infile_sets_array->[-1]},
 			 $file_types_array->[$association]->[$row_index]
 			 ->[$col_index]);
+
+		    #If the filename is undefined (as would be the case if the
+		    #user didn't supply a type of input file that is optional),
+		    #make the sub undefined as well
+		    if(!defined($file_types_array->[$association]->[$row_index]
+				->[$col_index]))
+		      {
+			push(@{$outfile_stubs_array->[-1]},undef);
+			next;
+		      }
 
 		    my $dirname = $file_types_array->[-1]->[$row_index]
 		      ->[$col_index];
@@ -3000,26 +3012,7 @@ Room 133A
 Princeton, NJ 08544
 rleach\@genomics.princeton.edu
 
-* WHAT IS THIS: This is a pre-processing accessory script to the 5 step process
-                in the package called 'hamming1':
-
-                 1. neighbors.pl  generates a hamming distance 1 neighbors file
-                 2. errorRates.pl generates a Z-Score histogram (see -h)
-                 3. errorRates.pl generates error rate estimates (see -z)
-                 4. nZeros.pl     generates expected error abundances
-                 5. getReals.pl   filters sequences by N/N0 fraction
-
-                Use these scripts when you have a metagenomic sample of
-                ungapped, aligned, & same-sized sequences, to help give you an
-                idea which sequences might be real and which are the result of
-                PCR substitution errors.  The N0 expected error abundances
-                output can be compared to actual abundance to infer whether the
-                sequence is real.  I.e. If the actual abundance is much larger
-                than the abundance you would expect to see if a sequence is the
-                result of PCR substitution errors, then you would expect the
-                sequence to be real (i.e. exist in the original sample).
-
-                This script takes a series of aligned, same-length, no-gap,
+* WHAT IS THIS: This script takes a series of aligned, same-length, no-gap,
                 input sequence files and merges them into 1 file, outputting
                 each unique sequence once with its cumulative abundance across
                 all input files.  Abundances can either be computed from
@@ -3027,7 +3020,13 @@ rleach\@genomics.princeton.edu
                 upon merge.  All sequences are reported in upper-case
                 characters.  To ignore abundance values and count sequences
                 from scratch (instead of match abundance patterns) supply
-                -p ''.
+                -p ''.  This script will also regenerate the same set of input
+                files with the new globally unique IDs prepended on the
+                deflines.
+
+                This script represents the first step of a 7 step process in
+                the package called 'cff' (cluster free filtering).  Please
+                refer to the README for general information about the package.
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
                    ungapped, aligned, and same-sized sequences and with a
@@ -3062,7 +3061,7 @@ rleach\@genomics.princeton.edu
               See HEADER FORMAT in the --extended --help output for additional
               header information.
 
-* TAB FORMAT: A tab-delimited text file with 4 columns: GlobalID and Abundance.
+* TAB FORMAT: A tab-delimited text file with 2 columns: GlobalID and Abundance.
               If --header is supplied, a header line will be at the top of the
               output file, like this:
 
@@ -3251,35 +3250,22 @@ sub usage
 	if(!$advanced_mode)
 	  {
 	    print << 'end_print';
-     -i|--seq-file        REQUIRED Space-separated input file(s).  See --help
-                                   for file format.
-     -f|--outfile         OPTIONAL [stdout] Merged sequence file.  See --help
-                                   for file format.
-     -u|--abundance-      OPTIONAL [no output] Merged tab-delimited data file.
-	outfile                    See --help for file format.
+     -i|--seq-file        REQUIRED Input sequence file(s).  See --help for file
+                                   format.
+     -f|--outfile         OPTIONAL [stdout] Merged sequence output file.  See
+                                   --help for file format.
+     -u|--abundance-      OPTIONAL [no output] Merged tab-delimited output
+                                   data file.  See --help for file format.
      -o|--seq-suffix      OPTIONAL [no output]  Outfile extension appended to
                                    -i to generate a duplicate of the input file
                                    with global IDs.
-     -x|--abundance-      OPTIONAL [no output]  Outfile extension appended to
+     -x|--abundance-      OPTIONAL [no output] Outfile extension appended to
         suffix                     -i to generate a tab-delimited version of
                                    the input file with global IDs and original
                                    source file abundances.
-     -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file type.
-     -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
-        pattern                    to extract abundance values from deflines.
-     -d|--abund-delimiter OPTIONAL [size=$value_subst_str;] The abundance
-                                   value that is appended to the global ID on
-                                   the defline of the sequence file will be
-                                   demilimited by this string.
-     -q|--seq-id-pattern  OPTIONAL [^\s*[>\@]\s*([^;]+)] A perl regular
-                                   expression to extract seq IDs from deflines.
-     -g|--id-delimiter    OPTIONAL [lib_$value_subst_str;] The global ID
-                                   delimiter appended to the global ID on
-                                   the defline of the sequence file.
-     -c|--append-old-     OPTIONAL Append defline from the original input file
-        defline                    (-i) to the new defline with the global
-                                   ID and abundance.  Only used when -o is
-                                   supplied.
+     -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file type
+                                   (provided to -i).
+     --outdir             OPTIONAL [none] Directory to put output files.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
      --skip-existing      OPTIONAL Skip existing output files.
@@ -3287,7 +3273,7 @@ sub usage
      --force              OPTIONAL Ignore critical errors.  Also see
                                    --overwrite or --skip-existing.
      --header             OPTIONAL Print commented script version, date, and
-                                   command line call to outfile.
+                                   command line call to outfile(s).
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
      --error-type-limit   OPTIONAL [50] Limit for each type of error/warning.
                                    0 = no limit.  Also see --quiet.
@@ -3297,21 +3283,21 @@ sub usage
      --help               OPTIONAL Print info and format descriptions.
      --extended           OPTIONAL Print extended usage/help/version/header
                                    when supplied with corresponding the flags.
-Run with just --extended for more descriptive usage output.
+Run with just --extended for advanced options and more details.
 end_print
 	  }
 	else #Advanced options/extended usage output
 	  {
 	    print << 'end_print';
-     -i|--seq-file*       REQUIRED Space-separated input file(s) inside quotes
-                                   (e.g. -i "*.txt *.text").  Expands standard
-                                   bsd glob characters (e.g. '*', '?', etc.).
-                                   See --extended --help for input file format
-                                   and advanced usage examples.  *No flag
-                                   required.  Do not need to supply if there is
-                                   input on standard in.
-     -f|--outfile         OPTIONAL [stdout] Merged sequence file.  Will not
-                                   overwrite without --overwite.  Default
+     -i|--seq-file*       REQUIRED Space-separated input sequence file(s)
+                                   inside quotes (e.g. -i "*.txt *.text").
+                                   Expands standard bsd glob characters (e.g.
+                                   '*', '?', etc.).  See --extended --help for
+                                   input file format & advanced usage examples.
+                                   Do not need to supply if there is input on
+                                   standard in.   *No flag required.
+     -f|--outfile         OPTIONAL [stdout] Merged sequence output file.  Will
+                                   not overwrite without --overwite.  Default
                                    behavior prints output to standard out.  If
                                    only -u output is desired, supply -u, but do
                                    not supply -f and do not dedirect standard
@@ -3319,12 +3305,12 @@ end_print
                                    in this case.  See --extended --help for
                                    output file format and advanced usage
                                    examples.
-     -u|--abundance-      OPTIONAL [no output] Merged tab-delimited data file
-	outfile			   containing sequential global sequence IDs
-                                   (the number at the beginning of the defline
-                                   in -f) and abundance values.  See --extended
-                                  --help for  output file format and advanced
-                                   usage examples.
+     -u|--abundance-      OPTIONAL [no output] Merged tab-delimited output data
+        outfile                    file containing sequential global sequence
+				   IDs (the number at the beginning of the
+                                   defline in -f) and abundance values.  See
+                                   --extended --help for output file format and
+                                   advanced usage examples.
      -o|--seq-suffix      OPTIONAL [no output]  Outfile extension appended to
                                    -i to generate a duplicate of the input file
                                    with global IDs prepended on the defline
@@ -3359,6 +3345,14 @@ end_print
                                    type.  Using this instead of auto will make
                                    file reading faster.  "auto" cannot be used
                                    when redirecting a file in.
+     --outdir             OPTIONAL [none] Directory to put output files.  This
+                                   option requires -o.  Default output
+                                   directory is the same as that containing
+                                   each input file.  Relative paths will be
+                                   relative to each individual input file.
+                                   Creates directories specified, but not
+                                   recursively.  Also see --extended --help for
+                                   more advanced usage examples.
      -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
         pattern                    used to extract the abundance value from the
                                    fasta/fastq defline of the input sequence
