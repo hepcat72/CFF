@@ -4,5 +4,8 @@ MANIFEST
 README.md
 sample/6_1.drp.fna
 src/errorRates.pl
+src/filterIndels.pl
+src/getCandidates.pl
+src/mergeSeqs.pl
 src/neighbors.pl
 src/nZeros.pl
