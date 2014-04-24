@@ -8,7 +8,7 @@
 #Copyright 2012
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.9';
+my $software_version_number = '1.10';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -39,6 +39,7 @@ my $filetype            = 'auto';
 my $abundance_pattern   = 'size=(\d+);';
 my $num_estimates       = 0;
 my $seq_id_pattern      = '^\s*[>\@]\s*([^;]+)';
+my $size_threshold      = 10;
 
 #These variables (in main) are used by the following subroutines:
 #verbose, error, warning, debug, getCommand, quit, and usage
@@ -50,33 +51,34 @@ my $ignore_errors = 0;
 my @user_defaults = getUserDefaults();
 
 my $GetOptHash =
-  {'i|seq-file=s'          => sub {push(@$input_files, #REQUIRED unless <> is
-			             [sglob($_[1])])}, #         supplied
-   '<>'                    => sub {push(@$input_files, #REQUIRED unless -i is
-				     [sglob($_[0])])}, #         supplied
-   'o|outfile-suffix=s'    => \$outfile_suffix,        #OPTIONAL [undef]
-   'outdir=s'              => sub {push(@$outdirs,     #OPTIONAL
+  {'i|seq-file=s'            => sub {push(@$input_files, #REQUIRED unless <> is
+			             [sglob($_[1])])},   #         supplied
+   '<>'                      => sub {push(@$input_files, #REQUIRED unless -i is
+				     [sglob($_[0])])},   #         supplied
+   'o|outfile-suffix=s'      => \$outfile_suffix,        #OPTIONAL [undef]
+   'outdir=s'                => sub {push(@$outdirs,     #OPTIONAL
 				     [sglob($_[1])])},
-   't|filetype=s'          => \$filetype,              #OPTIONAL [auto](fasta,
-				                       #         fastq,auto)
-   'p|abundance-pattern=s' => \$abundance_pattern,     #OPTIONAL
-                                                       #         [size=(\d+);]
-   'q|seq-id-pattern=s'    => \$seq_id_pattern,        #OPTIONAL
-                                                       #[^\s*[>\@]\s*([^;]+)]
-   'e|num-top-seqs=s'      => \$num_estimates,         #OPTIONAL [0]
-   'force|overwrite'       => \$overwrite,             #OPTIONAL [Off]
-   'skip-existing!'        => \$skip_existing,         #OPTIONAL [Off]
-   'ignore'                => \$ignore_errors,         #OPTIONAL [Off]
-   'verbose:+'             => \$verbose,               #OPTIONAL [Off]
-   'quiet'                 => \$quiet,                 #OPTIONAL [Off]
-   'debug:+'               => \$DEBUG,                 #OPTIONAL [Off]
-   'help'                  => \$help,                  #OPTIONAL [Off]
-   'advanced-help'         => \$adv_help,              #OPTIONAL [Off]
-   'version'               => \$version,               #OPTIONAL [Off]
-   'header!'               => \$header,                #OPTIONAL [On]
-   'error-type-limit=s'    => \$error_limit,           #OPTIONAL [0]
-   'dry-run!'              => \$dry_run,               #OPTIONAL [Off]
-   'use-as-default!'       => \$use_as_default,        #OPTIONAL [Off]
+   't|filetype=s'            => \$filetype,              #OPTIONAL [auto]
+				                         #   (fasta,fastq,auto)
+   'a|abundance-threshold=s' => \$size_threshold,           #OPTIONAL [10]
+   'p|abundance-pattern=s'   => \$abundance_pattern,     #OPTIONAL
+                                                         #        [size=(\d+);]
+   'q|seq-id-pattern=s'      => \$seq_id_pattern,        #OPTIONAL
+                                                         #[^\s*[>\@]\s*([^;]+)]
+   'e|num-top-seqs=s'        => \$num_estimates,         #OPTIONAL [0]
+   'force|overwrite'         => \$overwrite,             #OPTIONAL [Off]
+   'skip-existing!'          => \$skip_existing,         #OPTIONAL [Off]
+   'ignore'                  => \$ignore_errors,         #OPTIONAL [Off]
+   'verbose:+'               => \$verbose,               #OPTIONAL [Off]
+   'quiet'                   => \$quiet,                 #OPTIONAL [Off]
+   'debug:+'                 => \$DEBUG,                 #OPTIONAL [Off]
+   'help'                    => \$help,                  #OPTIONAL [Off]
+   'advanced-help'           => \$adv_help,              #OPTIONAL [Off]
+   'version'                 => \$version,               #OPTIONAL [Off]
+   'header!'                 => \$header,                #OPTIONAL [On]
+   'error-type-limit=s'      => \$error_limit,           #OPTIONAL [0]
+   'dry-run!'                => \$dry_run,               #OPTIONAL [Off]
+   'use-as-default!'         => \$use_as_default,        #OPTIONAL [Off]
   };
 
 #If the user has previously stored any defaults
@@ -426,14 +428,19 @@ foreach my $set_num (0..$#$input_file_sets)
 
     next if($skip || $cnt == 0);
 
-    if(scalar(@$ary) <= $num_estimates)
-      {warning("There are fewer or equal sequences in the sequence file: ",
+    if(scalar(@$ary) < $num_estimates)
+      {warning("There are fewer sequences in the sequence file: ",
 	       "[$input_file] than the number of top sequences requested ",
 	       "(-e): [$num_estimates].")}
 
     closeIn(*INPUT);
 
-    printFirstNeighbors($ary,$lookup,$cnt,$num_estimates,$abundance_hash);
+    printFirstNeighbors($ary,
+			$lookup,
+			$cnt,
+			$num_estimates,
+			$abundance_hash,
+			$size_threshold);
 
     closeOut(*OUTPUT) if(defined($outfile_suffix));
   }
@@ -2380,75 +2387,28 @@ end_print
     if(!$advanced)
       {
 	print << "end_print";
-* WHAT IS THIS: This script represents the first step of a 5 step process in
-                the package called 'hamming1':
-
-                *1. neighbors.pl  generates a hamming distance 1 neighbors file
-                 2. errorRates.pl generates a Z-Score histogram (see -h)
-                 3. errorRates.pl generates error rate estimates (see -z)
-                 4. nZeros.pl     generates expected error abundances
-                 5. getReals.pl   filters sequences by N/N0 fraction
-
-                Use these scripts when you have a metagenomic sample of
-                ungapped, aligned, & same-sized sequences, to help give you an
-                idea which sequences might be real and which are the result of
-                PCR substitution errors.  The N0 expected error abundances
-                output can be compared to actual abundance to infer whether the
-                sequence is real.  I.e. If the actual abundance is much larger
-                than the abundance you would expect to see if a sequence is the
-                result of PCR substitution errors, then you would expect the
-                sequence to be real (i.e. exist in the original sample).
-
-                This script finds all hamming distance 1 neighbors of a set of
+* WHAT IS THIS: This script finds all hamming distance 1 neighbors of a set of
                 aligned, same-length, no-gap, input sequences.  I.e., for each
                 sequence, it finds all other sequences which differ from it by
                 1 substitution.  Only works for mismatches, not indels.
 
-                Helpful definitions:
+                This script represents the second step of a 7 step process in
+                the package called 'cff' (cluster free filtering).  Please
+                refer to the README for general information about the package.
 
-                Neighbor sequence: A sequence that differs by 1 substitution
-                                   from a mother sequence.  Also referred to as
-                                   "1st neighbor" or "hamming distance 1
-                                   neighbor".
-                Mother sequence:   A theoretical real sequence from which
-                                   erroneous sequences are derived.  Each
-                                   sequence in column 1 of the neighbors file
-                                   is referred to as a mother sequence when
-                                   comparing it to its neighbors on that row.
-                N0 ("N zero"):     The abundance of a sequence that would be
-                                   expected if it is the result of a PCR
-                                   substitution error.
-                N/N0:              A.k.a. the "abundance/N0" fraction.  This is
-                                   the abundance of a sequence divided by the
-                                   expected abundance if the sequence is a fake
-                                   sequence (i.e. the result of a PCR
-                                   substitution error).
-                Reverse Spillover: An error that reverses a previous error to
-                                   be correct by chance, or an error that
-                                   causes a real sequence to turn into a
-                                   different real sequence.
-                Real sequence:     A sequence that is not the result of a PCR
-                                   substitution error and is presumed to exist
-                                   in the original biological sample.
-                Fake sequence:     A sequence that is deemed to be the result
-                                   of a PCR substitution error and is presumed
-                                   to not exist in the original biological
-                                   sample.
-                Z Score:           During the estimation of the error rates, a
-                                   Z Score is calculated for each neighbor.  It
-                                   is computed as:
+* SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
+                   ungapped, aligned, and same-sized sequences and with a
+                   unique identifier followed by an abundance value on the
+                   defline.  Default defline format looks like this example:
 
-                                   z = (An - Amu) / Astddev
+                   >lib_6;size=1002;
 
-                                   where An is the abundance of a particular
-                                   neighbor, Amu is the average neighbor
-                                   abundance, and Astddev is the standard
-                                   deviation of neighbor abundance.  It is then
-                                   used with a supplied threshold to filter out
-                                   potential real sequences from the estimation
-                                   of the error background.
-
-* INPUT FORMAT: Fasta or fastq format DNA sequence files.
+                   Any defline format can be used as long as it is consistent,
+                   both pieces of information are present, and the identifier
+                   is the first unbroken string after the defline character.
+                   The unique ID may contain the abundance value.  Use -p to
+                   extract the abundance values from deflines not in the above
+                   format.
 
 * OUTPUT FORMAT: Tab-delimited ascii text file where the first column contains
                  every sequence's ID (the string on the defline up to the first
@@ -2556,12 +2516,13 @@ sub usage
     else
       {
         print << 'end_print';
-     -i|--seq-file*       REQUIRED Space-separated input file(s).  Expands glob
-                                   characters ('*', '?', etc.).  When standard
-                                   input detected, -o has been supplied, and
-                                   there's only 1 value, this is used as a file
-                                   name stub.  See --help for file format and
-                                   advanced usage.  *No flag required.
+     -i|--seq-file*       REQUIRED Space-separated sequence input file(s).
+                                   Expands glob characters ('*', '?', etc.).
+                                   When standard input detected, -o has been
+                                   supplied, and there's only 1 value, this is
+                                   used as a file name stub.  See --help for
+                                   file format and advanced usage.  *No flag
+                                   required.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
                                    type.  Using this instead of auto will make
                                    file reading faster.  "auto" cannot be used
@@ -2609,7 +2570,19 @@ sub usage
                                    nZeros.pl, this value must be 0, but you
                                    only need as many as are supplied with
                                    "errorRates.pl -e" if all you want to do is
-                                   generate the error rates.
+                                   generate the error rates.  Note, the number
+                                   of outputs is also affected by -a.  The
+                                   smaller result of -a versus -e will be what
+                                   determines the number of lines in the output
+                                   neighbors file.
+     -a|--abundance-      OPTIONAL [10] The abundance threshold at or above
+        threshold                  which a sequence will be included as a
+                                   mother sequence in the neighbor output.  An
+                                   excluded sequence will still be reported as
+                                   the neighbor of more abundant sequences.
+                                   The purpose of the exclusion is to speed up
+                                   processing, since getCandidates.pl uses the
+                                   same threshold.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
      --skip-existing      OPTIONAL Skip existing output files.
@@ -3312,13 +3285,14 @@ sub printFirstNeighbors
     my $cnt        = $_[2] ? $_[2] : scalar(@$ary); #Assume cnt is correct
     my $top_seqs   = $_[3] ? $_[3] : 0;
     my $abund_hash = $_[4] ? $_[4] : {};
-    my $seedsize   = $_[5] ? $_[5] : (defined($main::seedsize) ?  #INTERNAL
+    my $min_size   = defined($_[5]) ? $_[5] : 0;
+    my $seedsize   = $_[6] ? $_[6] : (defined($main::seedsize) ?  #INTERNAL
 				    $main::seedsize : 0);
 
     #If we are only printing the neighbors of the $top_seqs, sort the array on
     #descending abundance
     my $oary = [];
-    if($top_seqs)
+    if($top_seqs || $min_size)
       {
 	my @errs = map {$_->[0]} grep {!exists($abund_hash->{$_->[0]})} @$ary;
 	if(scalar(@errs))
@@ -3338,9 +3312,14 @@ sub printFirstNeighbors
     else
       {$oary = [@$ary]}
 
-    #For each pary index except the last (or for all the top_seqs - if top_seqs
-    #has a non-zero value)
-    for(my $i1 = 0;$i1 < ($cnt - 1) && (!$top_seqs || ($i1 < $top_seqs));$i1++)
+    #For each ary index except the last (or for all the top_seqs - if top_seqs
+    #has a non-zero value) (or until the abundances are too low to matter for
+    #the analysis - if size threshold is non-zero)
+    for(my $i1 = 0;
+	$i1 < ($cnt - 1) &&
+	(!$top_seqs || ($i1 < $top_seqs)) &&
+	(!$min_size || ($abund_hash->{$oary->[$i1]->[0]} >= $min_size));
+	$i1++)
       {
 	verboseOverMe("Doing mother sequence [$oary->[$i1]->[0]].");
 
