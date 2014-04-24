@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.8';
+my $software_version_number = '1.14';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -53,6 +53,8 @@ my $append_delimiter    = "N0=$value_subst_str;";
 my $sigdig              = 3;
 my $err_files           = [];
 my $seq_id_pattern      = '^\s*[>\@]\s*([^;]+)';
+my $num_estimates       = 0;
+my $size_threshold      = 10;
 my($do_median,$do_mean);
 
 #These variables (in main) are used by the following subroutines:
@@ -71,9 +73,9 @@ my $GetOptHash =
 					   [sglob($_[0])])},# or -u is supplied
    'u|abundance-file=s'       => sub {push(@$abund_files,   #REQUIRED unless <>
 					   [sglob($_[1])])},# or -i is supplied
-   'n|neighbors-file=s'       => sub {push(@$ham_files,     #REQUIRED
-					   [sglob($_[1])])},
    'r|error-rates-file=s'     => sub {push(@$err_files,     #REQUIRED
+					   [sglob($_[1])])},
+   'n|neighbors-file=s'       => sub {push(@$ham_files,     #OPTIONAL
 					   [sglob($_[1])])},
    't|sequence-filetype=s'    => \$filetype,                #OPTIONAL [auto]
 				                            #(fasta,fastq,auto)
@@ -81,6 +83,8 @@ my $GetOptHash =
                                                             #     [size=(\d+);]
    'q|seq-id-pattern=s'       => \$seq_id_pattern,          #OPTIONAL [^\s*
                                                             #[>\@]\s*([^;]+)]
+   'e|num-top-seqs=s'         => \$num_estimates,           #OPTIONAL [0]
+   'a|abundance-threshold=s'  => \$size_threshold,          #OPTIONAL [10]
    'use-reverse-spillover!'   => \$reverse_spillover,       #OPTIONAL [Off]
    'd|append-delimiter=s'     => \$append_delimiter,        #OPTIONAL
 				                            # [N0=_VAL_HERE_;]
@@ -205,6 +209,22 @@ if($skip_existing && $overwrite)
     quit(-3);
   }
 
+if($num_estimates eq '' || $num_estimates < 0)
+  {
+    error("-e must be an unsigned integer and less than or equal to ",
+	  "the number of sequences in the sequence file (-i) and rows in the ",
+	  "neighbors file (-n).");
+    quit(8);
+  }
+
+if($size_threshold eq '' || $size_threshold < 0)
+  {
+    error("-a must be an unsigned integer and less than or equal to ",
+	  "the number of sequences in the sequence file (-i) and rows in the ",
+	  "neighbors file (-n).");
+    quit(9);
+  }
+
 #Warn users when they turn on verbose and output is to the terminal
 #(implied by no outfile suffix checked above) that verbose messages may be
 #uncleanly overwritten
@@ -273,9 +293,10 @@ mkdirs(@$outdirs);
 
 verbose('Run conditions: ',scalar(getCommand(1)));
 
-if(scalar(@$ham_files) == 0)
+if(scalar(@$ham_files) == 0 &&
+   scalar(@$input_files) == 0 && !isStandardInputFromTerminal())
   {
-    error("-n is a required parameter.");
+    error("Either -i or -n must be supplied.");
     quit(1);
   }
 
@@ -378,8 +399,9 @@ foreach my $set_num (0..$#$input_file_sets)
 
     if($dry_run)
       {
-	verbose("Running:\n\tsequence file [$input_file]\n\tNeighbor file ",
-		"[$ham_file]\n\tError file [$err_file]");
+	verbose("Running:\n\tsequence file [$input_file]\n\tNeighbor file [",
+		(defined($ham_file) ? $ham_file : 'building on the fly'),
+		"]\n\tError file [$err_file]");
 	next;
       }
 
@@ -396,13 +418,89 @@ foreach my $set_num (0..$#$input_file_sets)
 	  {error("Unable to parse file [$input_file].  Skipping.")}
       }
 
-    next if(scalar(keys(%{$seq_hash->{$input_file}})) == 0);
+    my $cnt = scalar(keys(%{$seq_hash->{$input_file}}));
 
-    if(!exists($neighbors->{$ham_file}))
-      {$neighbors->{$ham_file} = getNeighborsHash($ham_file,
-						  $seq_hash->{$input_file})}
+    next if($cnt == 0);
+
+    if(scalar(keys(%{$seq_hash->{$input_file}})) < $num_estimates)
+      {warning("There are fewer sequences in the input file: [$input_file] ",
+	       "than the number of top sequences specified by -e: ",
+	       "[$num_estimates].")}
+
+#    if(!exists($neighbors->{$ham_file}))
+#      {$neighbors->{$ham_file} = getNeighborsHash($ham_file)}
+    #If we have a neighbors file to work with
+    if(defined($ham_file) && -e $ham_file)
+      {
+	if(!exists($neighbors->{$ham_file}))
+	  {$neighbors->{$ham_file} = getNeighborsHash($ham_file)}
+      }
+    #If we saw this input file before and there was no neighbors file (above)
+    #Use this input file as the key in the neighbors hash, because we already
+    #created the first neighbors
+    elsif(exists($neighbors->{$input_file}))
+      {$ham_file = $input_file}
+    #Else use this input file as the key in the neighbors hash and create the
+    #first neighbors
+    else
+      {
+	#Prepare the inputs to getFirstNeighbors to build the neighbors hash
+	#from scratch
+
+	#Sort the seq hash to make a sorted array of sequence records
+	my $ary = [map {[$_,@{$seq_hash->{$input_file}->{$_}}
+			 [1..$#{$seq_hash->{$input_file}->{$_}}]]}
+		   sort {$seq_hash->{$input_file}->{$b}->[2] <=>
+			   $seq_hash->{$input_file}->{$a}->[2]}
+		   keys(%{$seq_hash->{$input_file}})];
+	#Create an abundance hash
+	my $abundance_hash = {map {$_ => $seq_hash->{$input_file}->{$_}->[2]}
+			      keys(%{$seq_hash->{$input_file}})};
+
+	#Create a quick sequence lookup hash where half sequences each have an
+	#array of indexes into the ary array
+	my $lookup = {};
+	my $index  = 0;
+	foreach my $seq (map {$_->[1]} @$ary)
+	  {
+	    my $len = length($seq);
+
+	    #Split the sequences into 2 halves
+	    my $halflen = int($len/2);
+	    my @seeds   = unpack("A$halflen".'A*',$seq);
+
+	    #Push this array index onto the hash
+	    foreach my $seed (@seeds)
+	      {push(@{$lookup->{$seed}},$index)}
+
+	    #Increment the index
+	    $index++;
+	  }
+
+	$ham_file = $input_file;
+	$neighbors->{$ham_file} = getFirstNeighbors($ary,
+						    $lookup,
+						    $cnt,
+						    $num_estimates,
+						    $abundance_hash,
+						    $size_threshold);
+      }
 
     next if(scalar(keys(%{$neighbors->{$ham_file}})) == 0);
+
+    my $num_seqs            = keys(%$seq_hash);
+    my $estimate_max        = ($num_seqs > $num_estimates ?
+			       $num_estimates : $num_seqs) - 1;
+
+    #If there are fewer that meet the abundance threshold, reset it
+    if($size_threshold &&
+       scalar(grep {$seq_hash->{$input_file}->{$_}->[2] >= $size_threshold}
+	      (keys(%{$seq_hash->{$input_file}}))[0..$estimate_max]) <
+       ($estimate_max + 1))
+      {$estimate_max = scalar(grep {$seq_hash->{$input_file}->{$_}->[2] >=
+				      $size_threshold}
+			      (keys(%{$seq_hash
+					->{$input_file}}))[0..$estimate_max])}
 
     #Cross-check with the seq-hash to make sure everything's accounted for
     #We need all the neighbors of each sequence in the sequence file in order
@@ -410,9 +508,9 @@ foreach my $set_num (0..$#$input_file_sets)
     #file is complete.
     my $skip = 0;
     my $missing_rows = [grep {!exists($neighbors->{$ham_file}->{$_})}
-			keys(%{$seq_hash->{$input_file}})];
-    my $missing_seqs = [grep {!exists($seq_hash->{$input_file}->{$_})}
-			keys(%{$neighbors->{$ham_file}})];
+			(sort {$seq_hash->{$input_file}->{$b}->[2] <=>
+				 $seq_hash->{$input_file}->{$a}->[2]}
+			 keys(%{$seq_hash->{$input_file}}))[0..$estimate_max]];
     if(scalar(@$missing_rows))
       {
 	my $sample = [scalar(@$missing_rows) > 10 ?
@@ -423,19 +521,8 @@ foreach my $set_num (0..$#$input_file_sets)
 	      "].  Please correct this and try again.  Skipping file.");
 	$skip = 1;
       }
-    if(scalar(@$missing_seqs))
-      {
-	my $sample = [scalar(@$missing_seqs) > 10 ?
-		      (@{$missing_seqs}[0..10],'...') :
-		      @$missing_seqs];
-	error("There are [",scalar(@$missing_seqs),"] missing ",
-	      "sequences in the sequence file: [$input_file]: [",
-	      join(',',@$sample),"].  Please correct this and try ",
-	      "again.  Skipping file.");
-	$skip = 1;
-      }
 
-    next if($skip);
+    next if($skip && !$ignore_errors);
 
     if(!exists($estimated_error_rates->{$err_file}))
       {$estimated_error_rates->{$err_file} = getErrorRates($err_file,
@@ -447,6 +534,7 @@ foreach my $set_num (0..$#$input_file_sets)
 
     my $nzero_hash       = {};
     my $nzero_debug_hash = {};
+    my $missing_mothers  = [];
 
     #Foreach mother sequence
     foreach my $mother_id (keys(%{$seq_hash->{$input_file}}))
@@ -456,12 +544,36 @@ foreach my $set_num (0..$#$input_file_sets)
 	unless(exists($nzero_hash->{$mother_id}))
 	  {$nzero_hash->{$mother_id} = 0}
 
+	if($size_threshold &&
+	   $seq_hash->{$input_file}->{$mother_id}->[2] < $size_threshold)
+	  {
+	    verboseOverMe("Skipping low abundant sequence: [$mother_id].");
+	    next;
+	  }
+
+	if(!exists($neighbors->{$ham_file}->{$mother_id}))
+	  {
+	    push(@$missing_mothers,$mother_id);
+	    debug("Mother ID: [$mother_id] is missing from the neighbor ",
+		  "data.  Assuming it has no neighbors.  The neighbor hash ",
+		  "has [",scalar(keys(%{$neighbors->{$ham_file}})),"] keys: [",
+		  join(',',keys(%{$neighbors->{$ham_file}})),"].");
+	    $neighbors->{$ham_file}->{$mother_id} = [];
+	  }
+
 	#Foreach neighboring sequence / substitution type / substitution positn
 	foreach my $nrec (@{$neighbors->{$ham_file}->{$mother_id}})
 	  {
+	    if(!exists($seq_hash->{$input_file}->{$nrec->[0]}))
+	      {
+		debug("Sequence ID [$nrec->[0]] from the neighbor hash was ",
+		      "not present in the seq hash.  Skipping.");
+		next;
+	      }
+
 	    #next if neighboring sequence is more abundant than mother sequence
-	    next if(!$reverse_spillover && $seq_hash->{$input_file}
-		    ->{$nrec->[0]}->[2] >
+	    next if(!$reverse_spillover &&
+		    $seq_hash->{$input_file}->{$nrec->[0]}->[2] >
 		    $seq_hash->{$input_file}->{$mother_id}->[2]);
 
 	    if(!exists($estimated_error_rates->{$err_file}->{AVERAGE}
@@ -508,6 +620,22 @@ foreach my $set_num (0..$#$input_file_sets)
 	  }
       }
 
+    if(scalar(@$missing_mothers))
+      {
+	my @tmp = ();
+	if(scalar(@$missing_mothers) > 10)
+	  {@tmp = (@{$missing_mothers}[0..8],'...')}
+	else
+	  {@tmp = @$missing_mothers}
+	warning("[",scalar(@$missing_mothers),"] mother IDs, e.g.: [",
+		join(',',@tmp),"] are missing from the neighbor data.  ",
+		"Assuming they have no neighbors.  To increase accuracy in ",
+		"the calculation of N0 for these sequences, you must ",
+		"increase the value of -e (or set it to 0).  To suppress ",
+		"this warning, use --ignore or --quiet.")
+	  unless($ignore_errors);
+      }
+
     debug(map {"N0($_) = $nzero_debug_hash->{$_} = $nzero_hash->{$_}\n"}
 	  keys(%$nzero_debug_hash));
 
@@ -525,7 +653,7 @@ foreach my $set_num (0..$#$input_file_sets)
     my $verbose_freq = 100;
     my $onum         = 1;
 
-    #Foreach mother sequence
+    #Foreach mother sequence, print the results
     foreach my $seq_id (sort {$seq_hash->{$input_file}->{$a}->[3] <=>
 				$seq_hash->{$input_file}->{$b}->[3]}
 			keys(%{$seq_hash->{$input_file}}))
@@ -1471,6 +1599,689 @@ sub getFileSets
     my($file_types_array,$outdir_array);
     my $outfile_stub = 'STDIN';
 
+    debug("Num initial arguments: [",scalar(@_),"].") if($DEBUG < -99);
+
+    #Allow user to submit multiple arrays.  If they do, assume 1. that they are
+    #2D arrays each containing a different input file type and 2. that the last
+    #one contains outdirs unless the global outfile_suffix is undefined
+    if(scalar(@_) > 1 && (defined($outfile_suffix) ||
+			  !defined($_[-1]) ||
+			  scalar(@{$_[-1]}) == 0))
+      {
+	debug("Assuming the last input array is outdirs.") if($DEBUG < -99);
+	debug("Copy Call 1") if($DEBUG < -99);
+	$outdir_array = copyArray(pop(@_));
+      }
+    elsif($DEBUG < -99)
+      {debug("Assuming the last input array is NOT outdirs.  Outfile suffix ",
+	     "is ",(defined($outfile_suffix) ? '' : 'NOT '),"defined, last ",
+	     "array submitted is ",(defined($_[-1]) ? '' : 'NOT '),
+	     "defined, and the last array sumitted is size ",
+	     (defined($_[-1]) ? scalar(@{$_[-1]}) : 'undef'),".")}
+
+    debug("Num arguments after dir pop: [",scalar(@_),"].") if($DEBUG < -99);
+
+    #Assumes that outdirs were popped off above
+    if(scalar(@_) > 1)
+      {
+	debug("Copy Call 2") if($DEBUG < -99);
+	$file_types_array = [copyArray(@_)];
+      }
+    else
+      {
+	debug("Copy Call 3") if($DEBUG < -99);
+	$file_types_array = copyArray($_[0]);
+      }
+
+    debug("Initial size of file types array: [",scalar(@$file_types_array),
+	  "].") if($DEBUG < -99);
+
+    #Error check the file_types array to make sure it's a 3D array of strings
+    if(ref($file_types_array) ne 'ARRAY')
+      {
+	#Allow them to submit scalars of everything
+	if(ref(\$file_types_array) eq 'SCALAR')
+	  {$file_types_array = [[[$file_types_array]]]}
+	else
+	  {
+	    error("Expected an array for the first argument, but got a [",
+		  ref($file_types_array),"].");
+	    quit(-9);
+	  }
+      }
+    elsif(scalar(grep {ref($_) ne 'ARRAY'} @$file_types_array))
+      {
+	my @errors = map {ref(\$_)} grep {ref($_) ne 'ARRAY'}
+	  @$file_types_array;
+	#Allow them to have submitted an array of scalars
+	if(scalar(@errors) == scalar(@$file_types_array) &&
+	   scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
+	  {$file_types_array = [[$file_types_array]]}
+	else
+	  {
+	    @errors = map {ref($_)} grep {ref($_) ne 'ARRAY'}
+	      @$file_types_array;
+	    error("Expected an array of arrays for the first argument, but ",
+		  "got an array of [",join(',',@errors),"].");
+	    quit(-10);
+	  }
+      }
+    elsif(scalar(grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
+		 @$file_types_array))
+      {
+	#Look for SCALARs
+	my @errors = map {my @x=@$_;map {ref(\$_)} @x}
+	  grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
+	    @$file_types_array;
+	#Allow them to have submitted an array of arrays of scalars
+	if(scalar(@errors) == scalar(map {@$_} @$file_types_array) &&
+	   scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
+	  {$file_types_array = [$file_types_array]}
+	else
+	  {
+	    #Reset the errors because I'm not looking for SCALARs anymore
+	    @errors = map {my @x=@$_;map {ref($_)} @x}
+	      grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
+		@$file_types_array;
+	    error("Expected an array of arrays of arrays for the first ",
+		  "argument, but got an array of arrays of [",
+		  join(',',@errors),"].");
+	    quit(-11);
+	  }
+      }
+    elsif(scalar(grep {my @x = @$_;
+		       scalar(grep {my @y = @$_;
+				    scalar(grep {ref(\$_) ne 'SCALAR'}
+					   @y)} @x)} @$file_types_array))
+      {
+	my @errors = map {my @x = @$_;map {my @y = @$_;map {ref($_)} @y} @x}
+	  grep {my @x = @$_;
+		scalar(grep {my @y = @$_;
+			     scalar(grep {ref(\$_) ne 'SCALAR'} @y)} @x)}
+	    @$file_types_array;
+	error("Expected an array of arrays of arrays of scalars for the ",
+	      "first argument, but got an array of arrays of [",
+	      join(',',@errors),"].");
+	quit(-12);
+      }
+
+    debug("Size of file types array after input check/fix: [",
+	  scalar(@$file_types_array),"].") if($DEBUG < -99);
+
+    debug("Contents of file types array before adding dash file: [(",
+	  join(')(',map {my $t=$_;'{' .
+			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
+				@$t) . '}'} @$file_types_array),")].")
+      if($DEBUG < -99);
+
+    #If standard input has been redirected in
+    if(!isStandardInputFromTerminal())
+      {
+	#The first element of the file types array is specifically the type of
+	#input file that can be provided via STDIN.  However, a user may
+	#explicitly supply a dash on the command line to have the STDIN go to a
+	#different parameter instead of the default
+	debug("file_types_array->[0] is [",
+	      (defined($file_types_array->[0]) ? 'defined' : 'undefined'),"].")
+	  if($DEBUG < -99);
+
+	if(!defined($file_types_array->[0]))
+	  {$file_types_array->[0] = []}
+
+	my $input_files = $file_types_array->[0];
+	my $num_input_files = scalar(grep {$_ ne '-'} map {@$_} @$input_files);
+	my $dash_was_explicit =
+	  scalar(grep {my $t=$_;scalar(grep {my $e=$_;
+					     scalar(grep {$_ eq '-'} @$e)}
+				       @$t)} @$file_types_array);
+
+	debug("There are $num_input_files input files.") if($DEBUG < -99);
+	debug("Outfile stub: $outfile_stub.") if($DEBUG < -99);
+
+	#If there's only one input file detected and the dash for STDIN was not
+	#explicitly provided, and an outfile suffix has been provided, use that
+	#input file as a stub for the output file name construction
+	if($num_input_files == 1 && !$dash_was_explicit &&
+	   defined($outfile_suffix) && $outfile_suffix ne '')
+	  {
+	    $outfile_stub = (grep {$_ ne '-'} map {@$_} @$input_files)[0];
+
+	    #Unless the dash was explicitly supplied as a separate file, treat
+	    #the input file as a stub only (not as an actual input file
+	    @$input_files = ();
+	    $num_input_files = 0;
+
+	    #If the stub contains a directory path AND outdirs were supplied
+	    if($outfile_stub =~ m%/% &&
+	       defined($outdir_array) && scalar(@$outdir_array))
+	      {
+		error("You cannot use --outdir and embed a directory path in ",
+		      "the outfile stub (-i with a single argument when ",
+		      "redirecting standard input in).  Please use one or ",
+		      "the other.");
+		quit(-13);
+	      }
+	  }
+	#If standard input has been redirected in (which is true because we're
+	#here) and the number of input files is not equal to 1 (i.e. the input
+	#file is not going to be treated as a stub) and an outfule_suffix has
+	#been defined, warn the user about the name of the outfile using STDIN
+	elsif($num_input_files != 1 && defined($outfile_suffix) &&
+	      $outfile_suffix ne '')
+	  {warning("Input on STDIN will be referred to as [$outfile_stub].")}
+
+	debug("Outfile stub: $outfile_stub.") if($DEBUG < -99);
+
+	#Unless the dash was supplied explicitly by the user, push it on
+	unless($dash_was_explicit)
+	  {
+	    debug("Pushing on the dash file to the other $num_input_files ",
+		  "files.") if($DEBUG < -99);
+	    debug("input_files is ",(defined($input_files) ? '' : 'un'),
+		  "defined, is of type [",ref($input_files),
+		  "], and contains [",
+		  (defined($input_files) ?
+		   scalar(@$input_files) : 'undefined'),"] items.")
+	      if($DEBUG < -99);
+
+	    debug(($input_files eq $file_types_array->[0] ?
+		   'input_files still references the first element in the ' .
+		   'file types array' : 'input_files has gotten overwritten'))
+	      if($DEBUG < -99);
+	    #If there are other input files present, push it
+	    if($num_input_files)
+	      {push(@{$input_files->[-1]},'-')}
+	    #Else create a new input file set with it as the only file member
+	    else
+	      {push(@$input_files,['-'])}
+
+	    debug(($input_files eq $file_types_array->[0] ?
+		   'input_files still references the first element in the ' .
+		   'file types array' : 'input_files has gotten overwritten'))
+	      if($DEBUG < -99);
+	  }
+      }
+
+    debug("Contents of file types array after adding dash file: [(",
+	  join(')(',map {my $t=$_;'{' .
+			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
+				@$t) . '}'} @$file_types_array),")].")
+      if($DEBUG < -99);
+
+    my $one_type_mode = 0;
+    #If there's only 1 input file type, merge all the sub-arrays
+    if(scalar(@$file_types_array) == 1)
+      {
+	$one_type_mode = 1;
+	debug("Only 1 type of file was submitted, so the array is being ",
+	      "pre-emptively flattened.") if($DEBUG < -99);
+
+	my @merged_array = ();
+	foreach my $row_array (@{$file_types_array->[0]})
+	  {push(@merged_array,@$row_array)}
+	$file_types_array->[0] = [[@merged_array]];
+      }
+
+    debug("Contents of file types array after merging sub-arrays: [(",
+	  join(')(',map {my $t=$_;'{' .
+			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
+				@$t) . '}'} @$file_types_array),")].")
+      if($DEBUG < -99);
+
+    debug("OUTDIR ARRAY DEFINED?: [",defined($outdir_array),"] SIZE: [",
+	  (defined($outdir_array) ? scalar(@$outdir_array) : '0'),"].")
+      if($DEBUG < -99);
+
+    #If output directories were supplied, error check them
+    if(defined($outdir_array) && scalar(@$outdir_array))
+      {
+	#Error check the outdir array to make sure it's a 2D array of strings
+	if(ref($outdir_array) ne 'ARRAY')
+	  {
+	    #Allow them to submit scalars of everything
+	    if(ref(\$outdir_array) eq 'SCALAR')
+	      {$outdir_array = [[$outdir_array]]}
+	    else
+	      {
+		error("Expected an array for the second argument, but got a [",
+		      ref($outdir_array),"].");
+		quit(-14);
+	      }
+	  }
+	elsif(scalar(grep {ref($_) ne 'ARRAY'} @$outdir_array))
+	  {
+	    my @errors = map {ref(\$_)} grep {ref($_) ne 'ARRAY'}
+	      @$outdir_array;
+	    #Allow them to have submitted an array of scalars
+	    if(scalar(@errors) == scalar(@$outdir_array) &&
+	       scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
+	      {$outdir_array = [$outdir_array]}
+	    else
+	      {
+		@errors = map {ref($_)} grep {ref($_) ne 'ARRAY'}
+		  @$outdir_array;
+		error("Expected an array of arrays for the second argument, ",
+		      "but got an array of [",join(',',@errors),"].");
+		quit(-15);
+	      }
+	  }
+	elsif(scalar(grep {my @x=@$_;scalar(grep {ref(\$_) ne 'SCALAR'} @x)}
+		     @$outdir_array))
+	  {
+	    #Look for SCALARs
+	    my @errors = map {my @x=@$_;map {ref($_)} @x}
+	      grep {my @x=@$_;scalar(grep {ref(\$_) ne 'SCALAR'} @x)}
+		@$outdir_array;
+	    error("Expected an array of arrays of scalars for the second ",
+		  "argument, but got an array of arrays of [",
+		  join(',',@errors),"].");
+	    quit(-16);
+	  }
+
+	debug("Adding directories into the mix.") if($DEBUG < -99);
+
+	#Put the directories in the file_types_array so that they will be
+	#error-checked and modified in the same way below.
+	push(@$file_types_array,$outdir_array);
+      }
+
+    debug("Contents of file types array after adding outdirs: [(",
+	  join(')(',map {my $t=$_;'{' .
+			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
+				@$t) . '}'} @$file_types_array),")].")
+      if($DEBUG < -99);
+
+    my $twods_exist = scalar(grep {my @x = @$_;
+			      scalar(@x) > 1 &&
+				scalar(grep {scalar(@$_) > 1} @x)}
+			     @$file_types_array);
+    debug("2D? = $twods_exist") if($DEBUG < -99);
+
+    #Determine the maximum dimensions of any 2D file arrays
+    my $max_num_rows = (#Sort on descending size so we can grab the largest one
+			sort {$b <=> $a}
+			#Convert the sub-arrays to their sizes
+			map {scalar(@$_)}
+			#Grep for arrays larger than 1 with subarrays larger
+			#than 1
+			grep {my @x = @$_;
+			      !$twods_exist ||
+				(scalar(@x) > 1 &&
+				 scalar(grep {scalar(@$_) > 1} @x))}
+			@$file_types_array)[0];
+
+    my $max_num_cols = (#Sort on descending size so we can grab the largest one
+			sort {$b <=> $a}
+			#Convert the sub-arrays to their sizes
+			map {my @x = @$_;(sort {$b <=> $a}
+					  map {scalar(@$_)} @x)[0]}
+			#Grep for arrays larger than 1 with subarrays larger
+			#than 1
+			grep {my @x = @$_;
+			      !$twods_exist ||
+				(scalar(@x) > 1 &&
+				 scalar(grep {scalar(@$_) > 1} @x))}
+			@$file_types_array)[0];
+
+    debug("Max number of rows and columns in 2D arrays: [$max_num_rows,",
+	  "$max_num_cols].") if($DEBUG < -99);
+
+    debug("Size of file types array: [",scalar(@$file_types_array),"].")
+      if($DEBUG < -99);
+
+    debug("Contents of modified file types array: [(",
+	  join(')(',map {my $t=$_;'{' .
+			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
+				@$t) . '}'} @$file_types_array),")].")
+      if($DEBUG < -99);
+
+    #Error check to make sure that all file type arrays are either the two
+    #dimensions determined above or a 1D array equal in size to either of the
+    #dimensions
+    my $row_inconsistencies = 0;
+    my $col_inconsistencies = 0;
+    my $twod_col_inconsistencies = 0;
+    my @dimensionalities    = (); #Keep track for checking outfile stubs later
+    foreach my $file_type_array (@$file_types_array)
+      {
+	my @subarrays = @$file_type_array;
+
+	#If it's a 2D array (as opposed to just 1 col or row), look for
+	#inconsistencies in the dimensions of the array
+	if(scalar(scalar(@subarrays) > 1 &&
+		  scalar(grep {scalar(@$_) > 1} @subarrays)))
+	  {
+	    push(@dimensionalities,2);
+
+	    #If the dimensions are not the same as the max
+	    if(scalar(@subarrays) != $max_num_rows)
+	      {
+		debug("Row inconsistencies in 2D arrays found")
+		  if($DEBUG < -99);
+		$row_inconsistencies++;
+	      }
+	    elsif(scalar(grep {scalar(@$_) != $max_num_cols} @subarrays))
+	      {
+		debug("Col inconsistencies in 2D arrays found")
+		  if($DEBUG < -99);
+		$col_inconsistencies++;
+		$twod_col_inconsistencies++;
+	      }
+	  }
+	else #It's a 1D array (i.e. just 1 col or row)
+	  {
+	    push(@dimensionalities,1);
+
+	    #If there's only 1 row
+	    if(scalar(@subarrays) == 1)
+	      {
+		debug("There's only 1 row of size ",
+		      scalar(@{$subarrays[0]}),". Max cols: [$max_num_cols]. ",
+		      "Max rows: [$max_num_rows]")
+		  if($DEBUG < -99);
+		if(#$twods_exist &&
+		   !$one_type_mode &&
+		   scalar(@{$subarrays[0]}) != $max_num_rows &&
+		   scalar(@{$subarrays[0]}) != $max_num_cols &&
+		   scalar(@{$subarrays[0]}) > 1)
+		  {
+		    debug("Col inconsistencies in 1D arrays found (size: ",
+			  scalar(@{$subarrays[0]}),")")
+		      if($DEBUG < -99);
+		    $col_inconsistencies++;
+		  }
+		#If the 1D array needs to be transposed because it's a 1 row
+		#array and its size matches the number of rows, transpose it
+		elsif(#$twods_exist &&
+		      !$one_type_mode &&
+		      $max_num_rows != $max_num_cols &&
+		      scalar(@{$subarrays[0]}) == $max_num_rows)
+		  {@$file_type_array = transpose(\@subarrays)}
+	      }
+	    #Else if there's only 1 col
+	    elsif(scalar(@subarrays) == scalar(grep {scalar(@$_) == 1}
+					       @subarrays))
+	      {
+		debug("There's only 1 col of size ",scalar(@subarrays),
+		      "\nThe max number of columns is $max_num_cols")
+		  if($DEBUG < -99);
+		if(#$twods_exist &&
+		   !$one_type_mode &&
+		   scalar(@subarrays) != $max_num_rows &&
+		   scalar(@subarrays) != $max_num_cols &&
+		   scalar(@subarrays) != 1)
+		  {
+		    debug("Row inconsistencies in 1D arrays found")
+		      if($DEBUG < -99);
+		    $row_inconsistencies++;
+		  }
+		#If the 1D array needs to be transposed because it's a 1 col
+		#array and its size matches the number of cols, transpose it
+		elsif(#$twods_exist &&
+		      !$one_type_mode &&
+		      $max_num_rows != $max_num_cols &&
+		      scalar(@subarrays) == $max_num_cols)
+		  {@$file_type_array = transpose(\@subarrays)}
+	      }
+	    else #There must be 0 cols
+	      {
+		debug("Col inconsistencies in 0D arrays found")
+		  if($DEBUG < -99);
+		$col_inconsistencies++;
+	      }
+
+	    debug("This should be array references: [",
+		  join(',',@$file_type_array),"].") if($DEBUG < -99);
+	  }
+      }
+
+    #Re-determine the maximum dimensions of rows and columns in case they
+    #changed with the array manipulations above
+    $max_num_rows = (#Sort on descending size so we can grab the largest one
+		     sort {$b <=> $a}
+		     #Convert the sub-arrays to their sizes
+		     map {scalar(@$_)}
+		     #Grep for arrays larger than 1 with subarrays larger
+		     #than 1
+		     grep {my @x = @$_;
+			   !$twods_exist ||
+			     (scalar(@x) > 1 &&
+			      scalar(grep {scalar(@$_) > 1} @x))}
+		     @$file_types_array)[0];
+
+    $max_num_cols = (#Sort on descending size so we can grab the largest one
+		     sort {$b <=> $a}
+		     #Convert the sub-arrays to their sizes
+		     map {my @x = @$_;(sort {$b <=> $a}
+				       map {scalar(@$_)} @x)[0]}
+		     #Grep for arrays larger than 1 with subarrays larger
+		     #than 1
+		     grep {my @x = @$_;
+			   !$twods_exist ||
+			     (scalar(@x) > 1 &&
+			      scalar(grep {scalar(@$_) > 1} @x))}
+		     @$file_types_array)[0];
+
+    #Now fill in the 1D arrays to match the dimensions of the other arrays
+    foreach my $file_type_array (@$file_types_array)
+      {
+	my @subarrays = @$file_type_array;
+
+	#If this is a 1D array
+	if(scalar(scalar(@subarrays) == 1 ||
+		  scalar(grep {scalar(@$_) == 1} @subarrays)))
+	  {
+	    #Now I want to fill in the empty columns/rows with duplicates
+	    #for the associations to be constructed easily.  I'm doing this
+	    #here separately because sometimes above, I had to transpose
+	    #the arrays
+	    my $num_rows = scalar(@$file_type_array);
+	    my $num_cols = scalar(@{$file_type_array->[0]});
+	    if($num_rows < $max_num_rows)
+	      {
+		debug("Pushing onto a 1D array with 1 row and multiple ",
+		      "columns because num_rows ($num_rows) < ",
+		      "max_num_rows ($max_num_rows)") if($DEBUG < -99);
+		foreach(scalar(@$file_type_array)..($max_num_rows - 1))
+		  {push(@$file_type_array,[@{$file_type_array->[0]}])}
+	      }
+	    #If all rows don't have the same number of cols
+	    if(scalar(@$file_type_array) ==
+	       scalar(grep {scalar(@$_) < $max_num_cols}
+		      @$file_type_array))
+	      {
+		debug("Pushing onto a 1D array with 1 col and multiple ",
+		      "rows because not all rows have the max number of ",
+		      "columns: ($max_num_cols)")
+		  if($DEBUG < -99);
+		my $row_index = 0;
+		foreach my $row_array (@$file_type_array)
+		  {
+		    my $empty = scalar(@$row_array) ? 0 : 1;
+		    debug("Processing columns of row at index [$row_index] ",
+			  "from $num_cols..($max_num_cols - 1)")
+		      if($DEBUG < -99);
+		    foreach($num_cols..($max_num_cols - 1))
+		      {
+			debug("Pushing column [",
+			      ($empty ? 'undef' : $row_array->[0]),"] on.")
+			  if($DEBUG < -99);
+			push(@$row_array,($empty ? undef : $row_array->[0]));
+		      }
+
+		    $row_index++;
+		  }
+	      }
+	  }
+      }
+
+    if($twods_exist &&
+       (($twods_exist < 2 &&
+	 ($row_inconsistencies || $twod_col_inconsistencies > 1 ||
+	  $twod_col_inconsistencies != $col_inconsistencies)) ||
+	($twods_exist > 1 &&
+	 ($row_inconsistencies || $col_inconsistencies))))
+      {
+	debug("Row inconsistencies: $row_inconsistencies Col ",
+	      "inconsistencies: $col_inconsistencies") if($DEBUG < -99);
+	error("The number of ",
+	      ($row_inconsistencies ? "sets of files" .
+	       (defined($outdir_array) && scalar($outdir_array) ?
+		"/directories " : ' ') .
+	       ($row_inconsistencies &&
+		$col_inconsistencies ? 'and ' : '') : ''),
+	      ($col_inconsistencies ? "files" .
+	       (defined($outdir_array) && scalar($outdir_array) ?
+		"/directories " : ' ') .
+	       "in each set " : ''),
+	      "is inconsistent among the various types of files" .
+	      (defined($outdir_array) && scalar($outdir_array) ?
+	       "/directories " : ' '),
+	      "input.  Please check your file",
+	      (defined($outdir_array) && scalar($outdir_array) ?
+	       "/directory " : ' '),
+	      "inputs and make sure the number of sets and numbers of files",
+	      (defined($outdir_array) && scalar($outdir_array) ?
+	       " and directories " : ' '),
+	      "in each set match.");
+	quit(-17);
+      }
+
+    #Now I need to return and array of arrays of files that are to be processed
+    #together
+    my $infile_sets_array   = [];
+    my $outfile_stubs_array = [];
+
+    if($DEBUG < -99)
+      {
+	foreach my $file_type_array (@$file_types_array)
+	  {
+	    debug("New file type.  These should be array references: [",
+		  join(',',map {defined($_) ? $_ : 'undef'} @$file_type_array),
+		  "] and these should not [",
+		  join(',',map {defined($_) ? $_ : 'undef'}
+		       @{$file_type_array->[0]}),
+		  "] [",
+		  (scalar(@$file_type_array) > 1 ?
+		   join(',',map {defined($_) ? $_ : 'undef'}
+			@{$file_type_array->[1]}) : ''),"].");
+	    foreach my $file_set (@$file_type_array)
+	      {debug(join(',',map {defined($_) ? $_ : 'undef'} @$file_set))}
+	  }
+      }
+
+    #Keep a hash to look for conflicting outfile stub names
+    my $unique_out_check = {};
+    my $nonunique_found  = 0;
+
+    #Create the input file groups and output stub groups that are all
+    #associated with one another
+    foreach my $row_index (0..($max_num_rows - 1))
+      {
+	foreach my $col_index (0..$#{$file_types_array->[-1]->[$row_index]})
+	  {
+	    debug("Creating new set.") if($DEBUG < -99);
+	    push(@$infile_sets_array,[]);
+	    push(@$outfile_stubs_array,[]);
+	    if(defined($outdir_array) && scalar(@$outdir_array))
+	      {
+		foreach my $association (0..($#{$file_types_array} - 1))
+		  {
+		    push(@{$infile_sets_array->[-1]},
+			 $file_types_array->[$association]->[$row_index]
+			 ->[$col_index]);
+
+		    #If the filename is undefined (as would be the case if the
+		    #user didn't supply a type of input file that is optional),
+		    #make the sub undefined as well
+		    if(!defined($file_types_array->[$association]->[$row_index]
+				->[$col_index]))
+		      {
+			push(@{$outfile_stubs_array->[-1]},undef);
+			next;
+		      }
+
+		    my $dirname = $file_types_array->[-1]->[$row_index]
+		      ->[$col_index];
+		    my $filename =
+		      ($file_types_array->[$association]->[$row_index]
+		       ->[$col_index] eq '-' ? $outfile_stub :
+		       $file_types_array->[$association]->[$row_index]
+		       ->[$col_index]);
+
+		    #Eliminate any path strings from the file name
+		    $filename =~ s/.*\///;
+
+		    #Prepend the outdir path
+		    my $new_outfile_stub = $dirname .
+		      ($dirname =~ /\/$/ ? '' : '/') . $filename;
+
+		    debug("Prepending directory $new_outfile_stub using [",
+			  $file_types_array->[-1]->[$row_index]->[$col_index],
+			  "].")
+		      if($DEBUG < -99);
+
+		    push(@{$outfile_stubs_array->[-1]},$new_outfile_stub);
+
+		    #Check for conflicting output file names that will
+		    #overwrite eachother
+		    if($dimensionalities[$association] == 2 &&
+		       exists($unique_out_check->{$new_outfile_stub}))
+		      {$nonunique_found = 1}
+		    push(@{$unique_out_check->{$new_outfile_stub}},$filename)
+		      if($dimensionalities[$association] == 2);
+		  }
+	      }
+	    else
+	      {
+		foreach my $association (0..($#{$file_types_array}))
+		  {
+		    debug("Adding to the set.") if($DEBUG < -99);
+		    push(@{$infile_sets_array->[-1]},
+			 $file_types_array->[$association]->[$row_index]
+			 ->[$col_index]);
+		    push(@{$outfile_stubs_array->[-1]},
+			 (defined($file_types_array->[$association]
+				  ->[$row_index]->[$col_index]) &&
+			  $file_types_array->[$association]->[$row_index]
+			  ->[$col_index] eq '-' ? $outfile_stub :
+			  $file_types_array->[$association]->[$row_index]
+			  ->[$col_index]));
+		  }
+	      }
+	  }
+      }
+
+    if($nonunique_found)
+      {
+	error('The following output file name stubs were created by ',
+	      'multiple input file names and will be overwritten if used.  ',
+	      'Please make sure each similarly named input file outputs to ',
+	      'a different output directory or that the input file names ',
+	      'bare no similarity.  Offending file name conflicts: [',
+	      join(',',map {"$_ is written to by [" .
+			      join(',',@{$unique_out_check->{$_}}) . "]"}
+		   (grep {scalar(@{$unique_out_check->{$_}}) > 1}
+		    keys(%$unique_out_check))),'].');
+	quit(-1);
+      }
+
+    debug("Processing input file sets: [(",
+	  join('),(',(map {my $a = $_;join(',',map {defined($_) ? $_ : 'undef'}
+					   @$a)} @$infile_sets_array)),
+	  ")] and output stubs: [(",
+	  join('),(',(map {my $a = $_;join(',',map {defined($_) ? $_ : 'undef'}
+					   @$a)} @$outfile_stubs_array)),")].")
+      if($DEBUG < 0);
+
+    return($infile_sets_array,$outfile_stubs_array);
+  }
+
+sub getFileSetsOLD
+  {
+    my($file_types_array,$outdir_array);
+    my $outfile_stub = 'STDIN';
+
     #Allow user to submit multiple arrays.  If they do, assume 1. that they are
     #2D arrays each containing a different input file type and 2. that the last
     #one contains outdirs unless the global outfile_suffix is undefined
@@ -2161,7 +2972,7 @@ sub getExistingOutfiles
       {
 	#For each output file *stub*, see if the expected outfile exists
 	foreach my $outfile_stub (@$outfile_stubs_for_input_files)
-	  {if(-e "$outfile_stub$outfile_suffix")
+	  {if(defined($outfile_stub) && -e "$outfile_stub$outfile_suffix")
 	     {push(@$existing_outfiles,"$outfile_stub$outfile_suffix")}}
       }
 
@@ -2545,79 +3356,20 @@ end_print
     if(!$advanced)
       {
 	print << "end_print";
-* WHAT IS THIS: This script represents the 4th step of a 5 step process in the
-                package called 'hamming1':
+* WHAT IS THIS: This script takes a set of sequences, a list of their hamming
+                distance 1 substitution neighbors (i.e. sequences that differ
+                by a single nucleotide substitution) generated by neighbors.pl,
+                and an estimated error rates file generated by errorRates.pl,
+                and computes N0 for each sequence (the expected abundance if a
+                sequence is the result of an error of another sequence).  The
+                abundance value is appended to the defline of the output
+                sequence file.  If a sequence is a "real" sequence and not an
+                error derived from a real sequence, its abundance will be
+                significantly higher than N0.
 
-                 1. neighbors.pl  generates a hamming distance 1 neighbors file
-                 2. errorRates.pl generates a Z-Score histogram (see -h)
-                 3. errorRates.pl generates error rate estimates (see -z)
-                *4. nZeros.pl     generates expected error abundances
-                 5. getReals.pl   filters sequences by N/N0 fraction
-
-                Use these scripts when you have a metagenomic sample of
-                ungapped, aligned, & same-sized sequences, to help give you an
-                idea which sequences might be real and which are the result of
-                PCR substitution errors.  The N0 expected error abundances
-                output can be compared to actual abundance to infer whether the
-                sequence is real.  I.e. If the actual abundance is much larger
-                than the abundance you would expect to see if a sequence is the
-                result of PCR substitution errors, then you would expect the
-                sequence to be real (i.e. exist in the original sample).
-
-                In step 4, this script takes a set of sequences, a list of
-                their hamming distance 1 substitution neighbors (i.e. sequences
-                that differ by a single nucleotide substitution) generated by
-                neighbors.pl, and an estimated error rates file generated by
-                errorRates.pl, and computes N0 for each sequence (the expected
-                abundance if a sequence is the result of an error of another
-                sequence).  The abundance value is appended to the defline of
-                the output sequence file.  If a sequence is a "real" sequence
-                and not an error derived from a real sequence, its abundance
-                will be significantly higher than N0.
-
-                Helpful definitions:
-
-                Neighbor sequence: A sequence that differs by 1 substitution
-                                   from a mother sequence.  Also referred to as
-                                   "1st neighbor" or "hamming distance 1
-                                   neighbor".
-                Mother sequence:   A theoretical real sequence from which
-                                   erroneous sequences are derived.  Each
-                                   sequence in column 1 of the neighbors file
-                                   is referred to as a mother sequence when
-                                   comparing it to its neighbors on that row.
-                N0 ("N zero"):     The abundance of a sequence that would be
-                                   expected if it is the result of a PCR
-                                   substitution error.
-                N/N0:              A.k.a. the "abundance/N0" fraction.  This is
-                                   the abundance of a sequence divided by the
-                                   expected abundance if the sequence is a fake
-                                   sequence (i.e. the result of a PCR
-                                   substitution error).
-                Reverse Spillover: An error that reverses a previous error to
-                                   be correct by chance, or an error that
-                                   causes a real sequence to turn into a
-                                   different real sequence.
-                Real sequence:     A sequence that is not the result of a PCR
-                                   substitution error and is presumed to exist
-                                   in the original biological sample.
-                Fake sequence:     A sequence that is deemed to be the result
-                                   of a PCR substitution error and is presumed
-                                   to not exist in the original biological
-                                   sample.
-                Z Score:           During the estimation of the error rates, a
-                                   Z Score is calculated for each neighbor.  It
-                                   is computed as:
-
-                                   z = (An - Amu) / Astddev
-
-                                   where An is the abundance of a particular
-                                   neighbor, Amu is the average neighbor
-                                   abundance, and Astddev is the standard
-                                   deviation of neighbor abundance.  It is then
-                                   used with a supplied threshold to filter out
-                                   potential real sequences from the estimation
-                                   of the error background.
+                This script represents the fifth step of a 7 step process in
+                the package called 'cff' (cluster free filtering).  Please
+                refer to the README for general information about the package.
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
                    ungapped, aligned, and same-sized sequences and with a
@@ -2646,15 +3398,15 @@ end_print
                    where at position 1,234, the mother sequence has an "A" and
                    this neighboring sequence has a "T".  Example:
 
-lib_1;size=12210;	lib_70;size=636;	127:A>G	lib_112;size=519;	126:A>C
-lib_2;size=11741;	lib_100;size=543;	117:A>G	lib_109;size=526;	126:T>C
-lib_3;size=10664;	lib_90;size=554;	70:T>C	lib_91;size=553;	76:A>G
-lib_4;size=10526;	lib_36;size=916;	115:G>A	lib_40;size=824;	112:C>T
-lib_5;size=7895;	lib_39;size=875;	97:A>C	lib_138;size=492;	129:A>G
-lib_6;size=4911;	lib_289;size=403;	128:A>G	lib_628;size=304;	128:A>C
-lib_7;size=4682;	lib_338;size=387;	98:T>G	lib_856;size=239;	76:A>G
-lib_8;size=4562;	lib_646;size=298;	128:A>C	lib_769;size=260;	117:C>A
-lib_9;size=4255;	lib_7;size=4682;	62:T>C	lib_918;size=223;	121:A>G
+lib_1	lib_7	127:A>G	lib_112	126:A>C
+lib_2	lib_100	117:A>G	lib_109	126:T>C
+lib_3	lib_90	70:T>C	lib_91	76:A>G
+lib_4	lib_36	115:G>A	lib_40	112:C>T
+lib_5	lib_39	97:A>C	lib_138	129:A>G
+lib_6	lib_289	128:A>G	lib_628	128:A>C
+lib_7	lib_338	98:T>G	lib_856	76:A>G
+lib_8	lib_646	128:A>C	lib_769	117:C>A
+lib_9	lib_7	62:T>C	lib_918	121:A>G
 
 * ERROR RATES FORMAT: A tab-delimited 13 column text file containing columns of
                       the error rate estimates for each substitution type in
@@ -2782,29 +3534,56 @@ sub usage
                                    -o has been supplied, and there's only 1
                                    value.  See --help for file format and
                                    advanced usage.  *No flag required.
-                                   ~Required if -u is not provided, as they are
-                                   mutually exclusive.
+                                   ~Required if -u or -n is not provided.  -i
+                                   and -u are mutually exclusive.  You cannot
+                                   provide both.
      -u|--abundance-file ~REQUIRED Space-separated abundance file(s).  Expands
                                    glob characters ('*', '?', etc.).  Used as a
                                    file name stub when standard input detected,
                                    -o has been supplied, and there's only 1
                                    value.  See --help for file format and
                                    advanced usage.  ~Required if -i is not
-                                   provided, as they are mutually exclusive.
-     -n|--neighbors-file  REQUIRED Space-separated neighbors file(s).  Expands
-                                   glob characters ('*', '?', etc.).  See
-                                   --help for file format and advanced usage.
+                                   provided.  -i and -u are mutually exclusive.
+                                   You cannot provide both.
      -r|--error-rates-    REQUIRED Space-separated estimated error rates
 	file			   file(s) containing a breakdown of the error
                                    rates per substitution type as well as the
                                    average rates.  Expands glob characters
                                    ('*', '?', etc.).  See --help for file
                                    format and advanced usage.
+     -n|--neighbors-file ~OPTIONAL Space-separated neighbors file(s).  Expands
+                                   glob characters ('*', '?', etc.).  See
+                                   --help for file format and advanced usage.
+                                   ~Required if -i is not provided.
      -t|--sequence-       OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
         filetype                   type.  Using a value other than auto will
                                    make file reading faster.  "auto" cannot be
                                    used when redirecting a file in.  Not used
                                    with -u.
+     -e|--num-top-seqs    OPTIONAL [0*] This is the number of the most abundant
+                                   sequences in the input sequence file (-i) to
+                                   use when calculating N0.  If -n is not
+                                   provided, this option and -a will limit the
+                                   generation of the neighbor data.  The
+                                   smaller this number, the faster the
+                                   computation and the less accurate N0 will
+                                   be.  This number must be big enough to
+                                   capture all expected real sequences or else
+                                   you will get errors about missing neighbor
+                                   data.
+                                   * 0 means use all sequences (except those
+                                   excluded by -a).
+     -a|--abundance-      OPTIONAL [10] The abundance threshold at or above
+        threshold                  which a sequence will be used in calculating
+                                   N0.  If -n is not provided, this option and
+                                   -e will limit the generation of the
+                                   neighbor data.  The larger this number, the
+                                   faster the computation and the less accurate
+                                   N0 will be.  Sequences with this abundance
+                                   will get an N0 value of infinity (unless
+                                   --use-reverse-spillover is supplied).  0
+                                   means use all sequences (except those
+                                   excluded by -e).
      -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
         pattern                    used to extract the abundance value from the
                                    fasta/fastq defline of the input sequence
@@ -3811,7 +4590,6 @@ sub getSeqHash
 sub getNeighborsHash
   {
     my $ham_file  = $_[0];
-    my $seq_hash  = $_[1];
     my $neighbors = {};
 
     openIn(*HAM,$ham_file) || return($neighbors);
@@ -3853,8 +4631,9 @@ sub getNeighborsHash
 	    else
 	      {
 		error("Unable to parse column [",($i + 2),"] on line ",
-		      "[$line_num] of neighbor file [$ham_file].  Please ",
-		      "correct the file and try again.  Skipping file.");
+		      "[$line_num] of neighbor file [$ham_file]: [",
+		      ($data[$i + 1]),"].  Please correct the file and try ",
+		      "again.  Skipping file.");
 		$skip = 1;
 		last;
 	      }
@@ -4022,4 +4801,145 @@ sub getMedian
       }
 
     return($median);
+  }
+
+sub getFirstNeighbors
+  {
+    my $ary        = $_[0]; #Array of 2 member arrays [[defline,sequence],...]
+    my $lookup     = $_[1]; #hash of arrays {$sequenceseed=>[neighbor1id,...]}
+    my $cnt        = $_[2] ? $_[2] : scalar(@$ary); #Assume cnt is correct
+    my $top_seqs   = $_[3] ? $_[3] : 0;
+    my $abund_hash = $_[4] ? $_[4] : {};
+    my $min_size   = defined($_[5]) ? $_[5] : 0;
+    my $neighbors  = {};
+
+    #If we are only printing the neighbors of the $top_seqs, sort the array on
+    #descending abundance
+    my $oary = [];
+    if($top_seqs || $min_size)
+      {
+	my @errs = map {$_->[0]} grep {!exists($abund_hash->{$_->[0]})} @$ary;
+	if(scalar(@errs))
+	  {
+	    my @sum = @errs;
+	    if(scalar(@errs) > 10)
+	      {@sum = (@errs[0..8],'...')}
+	    error("Abundances were not found for [",scalar(@errs),
+		  "] sequences: [",join(',',@sum),"].");
+	    #To avoid runtime errors...
+	    foreach my $id (@errs)
+	      {$abund_hash->{$id} = 0}
+	  }
+	$oary = [sort {$abund_hash->{$b->[0]} <=> $abund_hash->{$a->[0]}}
+		 @$ary];
+      }
+    else
+      {$oary = [@$ary]}
+
+    #For each ary index except the last
+    for(my $i1 = 0;
+	$i1 < ($cnt - 1) &&
+	(!$top_seqs || ($i1 < $top_seqs)) &&
+	(!$min_size || ($abund_hash->{$oary->[$i1]->[0]} >= $min_size));
+	$i1++)
+      {
+	verboseOverMe("Finding first neighbprs of mother sequence ",
+		      "[$oary->[$i1]->[0]].  Use -n to skip this.");
+
+	#Break up the sequence into seeds for lookup
+	my(@seeds);
+	my $len = length($oary->[$i1]->[1]);
+
+	#Split the sequences into 2 halves
+	my $halflen = int($len/2);
+	my $upstr = "A$halflen".'A*';
+	(@seeds) = unpack($upstr,$oary->[$i1]->[1]);
+
+	#Grab all the array indexes where I expect to find similar sequences
+	#(guaranteed to get all hamming distance 1 sequences)
+	my $seen = {};
+	my @indexes =
+	  grep {my $e = !exists($seen->{$_});$seen->{$_}=1;$e && $_ >= $i1}
+	  map {@{$lookup->{$_}}} @seeds;
+
+	#For each possible first neighbor
+	foreach my $i2 (@indexes)
+	  {
+	    my $result = getHam1bases($oary->[$i1]->[1],$oary->[$i2]->[1]);
+
+	    #If the 2 sequences differ by 1 substitution
+	    if($result =~ /^(\d+):([A-Za-z])>([A-Za-z])$/)
+	      {
+		push(@{$neighbors->{$oary->[$i2]->[0]}},
+		     [$oary->[$i1]->[0],$1,$3,$2]);
+		push(@{$neighbors->{$oary->[$i1]->[0]}},
+		     [$oary->[$i2]->[0],$1,$2,$3]);
+#		push(@{$oary->[$i1]},$oary->[$i2]->[0],$result);
+#		push(@{$oary->[$i2]},$oary->[$i1]->[0],"$1:$3>$2");
+	      }
+	    elsif($result)
+	      {error("Unable to parse hamming distance 1 result: [$result].")}
+	    elsif(!exists($neighbors->{$oary->[$i1]->[0]}))
+	      {$neighbors->{$oary->[$i1]->[0]} = []}
+	  }
+
+	print STDOUT ($oary->[$i1]->[0],
+		      (exists($neighbors->{$oary->[$i1]->[0]}) &&
+		       scalar(@{$neighbors->{$oary->[$i1]->[0]}}) ? "\t" : ''),
+		      join("\t",(exists($neighbors->{$oary->[$i1]->[0]}) &&
+				 scalar(@{$neighbors->{$oary->[$i1]->[0]}}) ?
+				 map {"$_->[0]\t$_->[1]:$_->[2]>$_->[3]"}
+				 @{$neighbors->{$oary->[$i1]->[0]}} :
+				 '')),"\n");
+      }
+
+#    print STDOUT (join("\t",(scalar(@{$oary->[-1]}) > 2 ?
+#			     @{$oary->[-1]}[0,2..$#{$oary->[-1]}] : $oary->[-1]->[0])),
+#		  "\n");
+
+    verbose("First Neighbors done.");
+
+    return($neighbors);
+  }
+
+#Only returns 1 for mismatches - no indels. Must be equal length sequences
+#Assumes sequences are equal length
+sub getHam1bases
+  {
+    my $seq1 = $_[0];
+    my $seq2 = $_[1];
+    my $len  = $_[2] ? $_[2] : length($seq1); #INTERNAL - DO NOT SUPPLY
+    my $pos  = $_[3] ? $_[3] : 1;             #INTERNAL - DO NOT SUPPLY
+
+    #Error-check length
+    return(0) if(length($seq2) != $len);
+
+    if($len <= 1)
+      {return($seq1 ne $seq2 ? "$pos:$seq1>$seq2" : '')}
+
+    my $halflen = int($len/2);
+
+    #Split the sequences into 2 halves
+    my($lseq1,$rseq1) = unpack("A$halflen".'A*',$seq1);
+    my($lseq2,$rseq2) = unpack("A$halflen".'A*',$seq2);
+
+    my $eql = ($lseq1 eq $lseq2);
+    my $eqr = ($rseq1 eq $rseq2);
+
+    #If only 1 side is different
+    if($eql != $eqr)
+      {
+	if($eql)
+	  {return(getHam1bases($rseq1,
+			       $rseq2,
+			       $halflen + ($len % 2),
+			       $halflen + $pos))}
+	else
+	  {return(getHam1bases($lseq1,
+			       $lseq2,
+			       $halflen,
+			       $pos))}
+      }
+    else
+      {return(0)}
   }
