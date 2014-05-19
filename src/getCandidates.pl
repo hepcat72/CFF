@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.6';
+my $software_version_number = '1.7';
 my $created_on_date         = '3/24/2014';
 
 ##
@@ -372,7 +372,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	my $id        = '';
 	my $abundance = 0;
 	my $n0        = '';
-	if($def =~ /\s*[\%\>]/)
+	if($def =~ /\s*[\@\>]/)
 	  {
 	    if($def =~ /$abundance_pattern/)
 	      {$abundance = $1}
