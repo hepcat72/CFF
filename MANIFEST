@@ -3,9 +3,11 @@ Makefile.PL
 MANIFEST
 README.md
 sample/6_1.drp.fna
+sample/6_1.drp.fq
 src/errorRates.pl
 src/filterIndels.pl
 src/getCandidates.pl
 src/mergeSeqs.pl
 src/neighbors.pl
 src/nZeros.pl
+src/run_cff.sh
