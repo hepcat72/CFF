@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.14';
+my $software_version_number = '1.15';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -4520,7 +4520,7 @@ sub getSeqHash
 	my $id        = '';
 	my $abundance = 0;
 
-	if($def =~ /\s*[\%\>]\s*(\S+)/)
+	if($def =~ /\s*[\@\>]\s*(\S+)/)
 	  {
 	    my $default_id = $1;
 
