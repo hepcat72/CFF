@@ -3,12 +3,16 @@
 
 #Generated using perl_script_template.pl 2.11
 #Robert W. Leach
-#rwleach@ccr.buffalo.edu
-#Center for Computational Research
-#Copyright 2012
+#Princeton University
+#Carl Icon Laboratory
+#Bioinformatics Group
+#Room 133A
+#Princeton, NJ 08544
+#rleach@genomics.princeton.edu
+#Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.11';
+my $software_version_number = '1.12';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -1162,9 +1166,9 @@ sub getVersion
 		"Version $template_version_number",
 		' Created: 5/8/2006',
 		' Author:  Robert W. Leach',
-		' Contact: rwleach@ccr.buffalo.edu',
-		' Company: Center for Computational Research',
-		' Copyright 2012'));
+		' Contact: rleach@genomics.princeton.edu',
+		' Company: Princeton University',
+		' Copyright 2014'));
       }
 
     return($version_message);
