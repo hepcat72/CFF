@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.0';
+my $software_version_number = '2.1';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -3398,7 +3398,8 @@ end_print
      -b|--trim-to-size    OPTIONAL [-1] Trim sequences to this length.  A value
                                    less than 0 will cause all sequences to be
                                    trimmed to the length of the shortest
-                                   sequence present.  A value of 0 will not
+                                   sequence present (which may be different in
+                                   each input file).  A value of 0 will not
                                    trim, but rather generate an error if all
                                    the sequences are not the same length.
      --outdir             OPTIONAL [none] Directory to put output files.  This
