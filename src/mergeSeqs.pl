@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.7';
+my $software_version_number = '2.0';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -52,6 +52,10 @@ my $value_subst_str     = '__VALUE_HERE__';
 my $id_delim            = "lib_$value_subst_str;";
 my $abund_delimiter     = "size=$value_subst_str;";
 my $append_defline      = 0;
+my $trim_size           = -1; #-1 = detect shortest sequence and trim to that
+                              #length, 0 = no trim & error if not all the same
+                              #size, >0 = trim to that size and throw anything
+                              #out that is shorter
 
 #These variables (in main) are used by the following subroutines:
 #verbose, error, warning, debug, getCommand, quit, and usage
@@ -86,7 +90,10 @@ my $GetOptHash =
 				                         # [size=_VL_HERE_;]
    'g|id-delimiter=s'      => \$id_delim,                #OPTIONAL
 				                         # [lib__VL_HERE_;]
-   'c|append-to-defline!'  => \$append_defline,          #OPTIONAL
+   'b|trim-to-size=s'      => \$trim_size,               #OPTIONAL [-1](-1=
+				                         #auto,0=no trim,>0=
+				                         #trim length)
+   'c|append-to-defline!'  => \$append_defline,          #OPTIONAL [Off]
    'overwrite'             => \$overwrite,               #OPTIONAL [Off]
    'skip-existing!'        => \$skip_existing,           #OPTIONAL [Off]
    'force'                 => \$force,                   #OPTIONAL [Off]
@@ -390,6 +397,14 @@ if(!$isglobal && (defined($outfile_suffix) || defined($tab_suffix)))
     quit(6);
   }
 
+if($trim_size !~ /^-?\d+$/)
+  {
+    error("Invalid trim size (-b): [$trim_size].");
+    quit(7);
+  }
+elsif($trim_size > 0)
+  {verbose("Trimming to size: [$trim_size].")}
+
 #If output is going to STDOUT instead of output files with different extensions
 #or if STDOUT was redirected, output run info once
 verbose('[STDOUT] Opened for all output.') if($num_outfiles == 0 ||
@@ -431,6 +446,7 @@ foreach my $set_num (0..$#$input_file_sets)
     my $current_outfile = $input_file_sets->[$set_num]->[1];
     my $current_mapfile = $input_file_sets->[$set_num]->[2];
     my $outfile_stub    = $outfile_stub_sets->[$set_num]->[0];
+    my $tmp_trim_size   = $trim_size;
 
     if(defined($current_outfile) && $current_outfile eq 'STDOUT')
       {undef($current_outfile)}
@@ -439,7 +455,7 @@ foreach my $set_num (0..$#$input_file_sets)
 
     next if(!defined($input_file)); #This is a kludge - getFileSets shouldn't be returning undef as an input file when input is detected on stdin and supplemented with files supplied via -i.  I should make it either max out the array dimensions or have it support input files arrays that have a variable number of columns.
 
-    my $file_key = (defined($current_outfile) ? $current_outfile : '');
+    my $file_key  = (defined($current_outfile) ? $current_outfile : '');
     my $file_key2 = (defined($current_mapfile) ? $current_mapfile : '');
 
     $partner_file->{$file_key}->{$file_key2} = 1;
@@ -448,27 +464,13 @@ foreach my $set_num (0..$#$input_file_sets)
       {
 	#Reset variables and clear out the memory
 	$cnt            = 0;
-#	$seq_hash       = {};
 	$abundance_hash = {};
 	undef($last_len);
 
-#    if(scalar(@$outfiles))
 	if(defined($current_outfile) &&
 	   !exists($seen_outfiles->{$current_outfile}))
 	  {
-#	$outfile = shift(@$outfiles);
-
 	    checkFile($current_outfile,$input_file_sets->[$set_num]) || next;
-
-#	if(-e $outfile && $skip_existing)
-#	  {
-#	    $skipped->{$outfile} = 1;
-#	    verbose("[$outfile] exists.  Skipping inputs.");
-#	    if(scalar(@$outfiles))
-#	      {next}
-#	    else
-#	      {last}
-#	  }
 
 	    $seen_outfiles->{$current_outfile} = 1;
 
@@ -481,24 +483,10 @@ foreach my $set_num (0..$#$input_file_sets)
 	elsif(defined($current_mapfile))
 	  {openOut(*OUTPUT,$current_outfile,1,1) || next}
 
-#    if(scalar(@$mapfiles))
 	if(defined($current_mapfile) &&
 	   !exists($seen_outfiles->{$current_mapfile}))
 	  {
-#	$mapfile = shift(@$mapfiles);
-
 	    checkFile($current_mapfile,$input_file_sets->[$set_num]) || next;
-
-#	if(-e $mapfile && $skip_existing)
-#	  {
-#	    $skipped->{$mapfile} = 1;
-#	    verbose("[$mapfile] exists.  Skipping inputs.");
-#	    closeOut(*OUTPUT);
-#	    if(scalar(@$mapfiles))
-#	      {next}
-#	    else
-#	      {last}
-#	  }
 
 	    #Attempt to open the outfiles first ]]so that if there's a problem,
 	    #we find out before taking the time to process the input files
@@ -513,126 +501,175 @@ foreach my $set_num (0..$#$input_file_sets)
 	  {openOut(*ABUND,$current_mapfile,1,1) || next}
       }
 
-#    foreach(@$input_file_set)
-#      {
-#	$input_file = $_;
+    openIn(*INPUT,$input_file) || next;
 
-	openIn(*INPUT,$input_file) || next;
+    my $verbose_freq = 100;
+    my $abundance    = 0;
+    my $skip         = 0;
+    my $rec_num      = 0;
+    my $warn_dupes   = 0;
+    my($rec);
 
-	my $verbose_freq = 100;
-	my $abundance    = 0;
-	my $skip         = 0;
-	my $rec_num      = 0;
-        my $warn_dupes   = 0;
-	my($rec);
+    debug("Reading in [$input_file]");
 
-	debug("Reading in [$input_file]");
-
-	#For each line in the current input file
+    my $recs = [];
+    my($smallest,$smallest_id);
+    if($tmp_trim_size < 0)
+      {
 	while($rec = getNextSeqRec(*INPUT))
 	  {
-	    $rec_num++;
-	    verboseOverMe("[$input_file] Reading record: [$rec_num].")
-	      unless($rec_num % $verbose_freq);
-
-	    my($def,$seq) = @$rec;
-	    $seq = uc($seq);
-
-	    my $id = '';
-	    if($def =~ /\s*[\%\>]\s*(\S+)/)
+	    push(@$recs,$rec);
+	    my $s = length($rec->[1]);
+	    if(!defined($smallest) || $s < $smallest)
 	      {
-		my $default_id = $1;
+		$smallest = $s;
+		$smallest_id = $rec->[0];
+	      }
+	  }
+	if(!defined($smallest))
+	  {
+	    error("Could not find smallest sequence in file [$input_file].  ",
+		  "Sequence file may be empty.  Skipping.  Use --force to ",
+		  "over-ride.");
+	    next unless($force);
+	  }
+	$tmp_trim_size = $smallest;
+	if($tmp_trim_size < 10)
+	  {warning("Smallest sequence size is really small: [$smallest].")}
+	verbose("Trimming to smallest sequence size: [$smallest] ",
+		"($smallest_id).");
+      }
+    else
+      {@$recs = getNextSeqRec(*INPUT)}
 
-		if($seq_id_pattern ne '' && $def =~ /$seq_id_pattern/)
-		  {$id = $1}
-		else
-		  {
-		    $id = $default_id;
-		    warning("Unable to parse seqID from defline: [$def] ",
-			    "in file: [$input_file] using pattern: ",
-			    "[$seq_id_pattern].  Please either fix the ",
-			    "defline or use a different pattern to extract ",
-			    "the seqID value.  Using default ID: [$id].  ",
-			    "Use \"-q ''\" to to avoid this warning.")
-		      if($seq_id_pattern ne '');
-		  }
+    #For each line in the current input file
+    foreach $rec (@$recs)
+      {
+	$rec_num++;
+	verboseOverMe("[$input_file] Reading record: [$rec_num].")
+	  unless($rec_num % $verbose_freq);
 
-		if($abundance_pattern ne '' && $def =~ /$abundance_pattern/)
-		  {$abundance = $1}
-		elsif($abundance_pattern ne '')
-		  {
-		    warning("Unable to parse abundance from defline: [$def] ",
-			    "in file: [$input_file] using pattern: ",
-			    "[$abundance_pattern].  Please either fix the ",
-			    "defline or use a different pattern to extract ",
-			    "the abundance value.  Assuming abundance = 1.  ",
-			    "Use \"-p ''\" to to avoid this warning.");
-		    $abundance = 1;
-		  }
-		else
-		  {$abundance = 1}
+	my($def,$seq) = @$rec;
+	$seq = uc($seq);
+
+	my $id = '';
+	if($def =~ /\s*[\@\>]\s*(\S+)/)
+	  {
+	    my $default_id = $1;
+
+	    if($seq_id_pattern ne '' && $def =~ /$seq_id_pattern/)
+	      {$id = $1}
+	    else
+	      {
+		$id = $default_id;
+		warning("Unable to parse seqID from defline: [$def] ",
+			"in file: [$input_file] using pattern: ",
+			"[$seq_id_pattern].  Please either fix the ",
+			"defline or use a different pattern to extract ",
+			"the seqID value.  Using default ID: [$id].  ",
+			"Use \"-q ''\" to to avoid this warning.")
+		  if($seq_id_pattern ne '');
+	      }
+
+	    if($abundance_pattern ne '' && $def =~ /$abundance_pattern/)
+	      {$abundance = $1}
+	    elsif($abundance_pattern ne '')
+	      {
+		warning("Unable to parse abundance from defline: [$def] ",
+			"in file: [$input_file] using pattern: ",
+			"[$abundance_pattern].  Please either fix the ",
+			"defline or use a different pattern to extract ",
+			"the abundance value.  Assuming abundance = 1.  ",
+			"Use \"-p ''\" to to avoid this warning.");
+		$abundance = 1;
+	      }
+	    else
+	      {$abundance = 1}
+	  }
+	else
+	  {
+	    warning("Could not parse defline in record [$rec_num] of ",
+		    "file [$input_file]: [$def].  Skipping sequence.");
+	    next;
+	  }
+
+	my $len = length($seq);
+
+	#If we're trimming to an arbitrary length defined on the command line
+	if($tmp_trim_size > 0 && $len != $tmp_trim_size)
+	  {
+	    if($len < $tmp_trim_size)
+	      {
+		verbose("Skipping short sequence: [$id], record: [$rec_num] ",
+			"in file: [$input_file].");
+		next;
 	      }
 	    else
 	      {
-		warning("Could not parse defline in record [$rec_num] of ",
-			"file [$input_file]: [$def].  Skipping sequence.");
-		next;
-	      }
-
-	    my $len = length($seq);
-
-	    #Error-check the sequence
-	    if(defined($last_len) && $len != $last_len)
-	      {
-		my $err = "Length of sequence [$id] in file [$input_file]: " .
-		  "[$len] does not match the length of the previous " .
-		    "sequence(s): [$last_len].";
-		if($force)
-		  {warning($err)}
+		if($seq =~ s/(.{$tmp_trim_size}).*/$1/)
+		  {
+		    $seq = $1;
+		    $len = $tmp_trim_size;
+		  }
 		else
 		  {
-		    error($err,"  Skipping sequence.  Use --force to ",
-			  "over-ride.");
+		    error("Unable to trim sequence: [$id], record: ",
+			  "[$rec_num] in file: [$input_file].");
 		    next;
 		  }
 	      }
-	    if($seq =~ /([^ATGCatcg])/)
-	      {
-		my $example = $1;
-		my $err = "Invalid character(s) found in sequence [$id] in " .
-		  "file [$input_file] (e.g. [$example]).";
-		if($force)
-		  {warning($err) if($seq =~ /([^ATGCNatcgn])/)}
-		else
-		  {
-		    error($err,"  Skipping sequence.  Use --force to ",
-			  "over-ride.") if($seq =~ /([^ATGCNatcgn])/);
-		    next;
-		  }
-	      }
-
-	    if(exists($seq_hash->{$input_file}) &&
-	       exists($seq_hash->{$input_file}->{$id}))
-	      {$warn_dupes++}
-
-	    $seq_hash->{$input_file}->{$id} = $abundance;
-	    $abundance_hash->{$file_key}->{$file_key2}->{SEQS}->{$seq} +=
-	      $abundance;
-	    $abundance_hash->{$file_key}->{$file_key2}->{SRCS}->{$outfile_stub}
-	      ->{$seq}->{DEF} .= $def;
-	    $abundance_hash->{$file_key}->{$file_key2}->{SRCS}->{$outfile_stub}
-	      ->{$seq}->{ABUND} += $abundance;
-
-	    $last_len = $len;
 	  }
 
-	closeIn(*INPUT);
+	#Error-check the sequence
+	if(defined($last_len) && $len != $last_len)
+	  {
+	    my $err = "Length of sequence [$id] in file [$input_file]: " .
+	      "[$len] does not match the length of the previous " .
+		"sequence(s): [$last_len].";
+	    if($force)
+	      {warning($err)}
+	    else
+	      {
+		error($err,"  Skipping sequence.  Use --force to ",
+		      "over-ride.");
+		next;
+	      }
+	  }
+	if($seq =~ /([^ATGCatcg])/)
+	  {
+	    my $example = $1;
+	    my $err = "Invalid character(s) found in sequence [$id] in " .
+	      "file [$input_file] (e.g. [$example]).";
+	    if($force)
+	      {warning($err) if($seq =~ /([^ATGCNatcgn])/)}
+	    else
+	      {
+		error($err,"  Skipping sequence.  Use --force to ",
+		      "over-ride.") if($seq =~ /([^ATGCNatcgn])/);
+		next;
+	      }
+	  }
+
+	if(exists($seq_hash->{$input_file}) &&
+	   exists($seq_hash->{$input_file}->{$id}))
+	  {$warn_dupes++}
+
+	$seq_hash->{$input_file}->{$id} = $abundance;
+	$abundance_hash->{$file_key}->{$file_key2}->{SEQS}->{$seq} +=
+	  $abundance;
+	$abundance_hash->{$file_key}->{$file_key2}->{SRCS}->{$outfile_stub}
+	  ->{$seq}->{DEF} .= $def;
+	$abundance_hash->{$file_key}->{$file_key2}->{SRCS}->{$outfile_stub}
+	  ->{$seq}->{ABUND} += $abundance;
+
+	$last_len = $len;
+      }
+
+    closeIn(*INPUT);
 
     if($warn_dupes)
       {warning("[$warn_dupes] duplicate IDs were found in sequence file ",
 	       "[$input_file].")}
-
-#      }
 
     next if($dry_run);
 
@@ -2352,8 +2389,8 @@ sub getFileSets
 		  {push(@$file_type_array,[@{$file_type_array->[0]}])}
 	      }
 	    #If all rows don't have the same number of cols
-	    if(scalar(@$file_type_array) ==
-	       scalar(grep {scalar(@$_) < $max_num_cols}
+	    if(scalar(@$file_type_array) !=
+	       scalar(grep {scalar(@$_) == $max_num_cols}
 		      @$file_type_array))
 	      {
 		debug("Pushing onto a 1D array with 1 col and multiple ",
@@ -2378,6 +2415,13 @@ sub getFileSets
 		    $row_index++;
 		  }
 	      }
+	    elsif(scalar(@$file_type_array) && $DEBUG < -99)
+	      {debug("These rows already have the max number of columns ",
+		     "($max_num_cols): [",
+		     join(';',map {join(',',@$_)} @$file_type_array),
+		     "].  Among the [",scalar(@$file_type_array),
+		     "] rows, each has this many columns: [",
+		     join(',',map {scalar(@$_)} @$file_type_array),"].")}
 	  }
       }
 
@@ -3012,17 +3056,21 @@ Room 133A
 Princeton, NJ 08544
 rleach\@genomics.princeton.edu
 
-* WHAT IS THIS: This script takes a series of aligned, same-length, no-gap,
-                input sequence files and merges them into 1 file, outputting
-                each unique sequence once with its cumulative abundance across
-                all input files.  Abundances can either be computed from
-                scratch or parsed from the sequence file deflines and summed
-                upon merge.  All sequences are reported in upper-case
-                characters.  To ignore abundance values and count sequences
-                from scratch (instead of match abundance patterns) supply
-                -p ''.  This script will also regenerate the same set of input
-                files with the new globally unique IDs prepended on the
-                deflines.
+* WHAT IS THIS: This script takes a series of aligned, variable-length, no-gap,
+                input sequence files and merges them into 1 file (trimming the
+                sequences to the length of the smallest sequence or to an
+                arbitrarily selected length - see -b), outputting each unique
+                sequence once with its cumulative abundance across all input
+                files.  Abundances can either be computed from scratch or
+                parsed from the sequence file deflines and summed upon merge.
+                If abundance values are supplied on the deflines of the
+                sequence file and sequences are trimmed, abundance values will
+                be summed if the subsequences match.  All sequences are
+                reported in upper-case characters.  To ignore abundance values
+                and count sequences from scratch (instead of match abundance
+                patterns) supply -p ''.  This script will also regenerate the
+                same set of input files with the new globally unique IDs
+                prepended on the deflines.
 
                 This script represents the first step of a 7 step process in
                 the package called 'cff' (cluster free filtering).  Please
@@ -3265,6 +3313,8 @@ sub usage
                                    source file abundances.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file type
                                    (provided to -i).
+     -b|--trim-to-size    OPTIONAL [-1] Trim sequences to this length.  -1 =
+                                   auto, 0 = no trim, >0 = trim length.
      --outdir             OPTIONAL [none] Directory to put output files.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
@@ -3345,6 +3395,12 @@ end_print
                                    type.  Using this instead of auto will make
                                    file reading faster.  "auto" cannot be used
                                    when redirecting a file in.
+     -b|--trim-to-size    OPTIONAL [-1] Trim sequences to this length.  A value
+                                   less than 0 will cause all sequences to be
+                                   trimmed to the length of the shortest
+                                   sequence present.  A value of 0 will not
+                                   trim, but rather generate an error if all
+                                   the sequences are not the same length.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Default output
                                    directory is the same as that containing
