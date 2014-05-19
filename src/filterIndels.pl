@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.11';
+my $software_version_number = '1.12';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -3789,7 +3789,7 @@ sub groupIndels
 	my $seq1 = $rec1->[1];
 
 	my $parent_id = '';
-	if($def1 =~ /\s*[\%\>]\s*(\S+)/)
+	if($def1 =~ /\s*[\@\>]\s*(\S+)/)
 	  {
 	    my $default_id = $1;
 
@@ -3890,7 +3890,7 @@ sub groupIndels
 	  {
 	    my $def = $rec->[0];
 	    my $id = '';
-	    if($def =~ /\s*[\%\>]\s*(\S+)/)
+	    if($def =~ /\s*[\@\>]\s*(\S+)/)
 	      {
 		my $default_id = $1;
 
@@ -4075,7 +4075,7 @@ sub getCheckAllSeqRecs
 	my($def,$seq) = @$rec;
 	my $id        = '';
 
-	if($def =~ /\s*[\%\>]\s*(\S+)/)
+	if($def =~ /\s*[\@\>]\s*(\S+)/)
 	  {
 	    my $default_id = $1;
 
