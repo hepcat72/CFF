@@ -8,7 +8,7 @@
 #Copyright 2012
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.10';
+my $software_version_number = '1.11';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -322,7 +322,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	my($def,$seq) = @$rec;
 
 	my $id = '';
-	if($def =~ /\s*[\%\>]\s*(\S+)/)
+	if($def =~ /\s*[\@\>]\s*(\S+)/)
 	  {
 	    my $default_id = $1;
 
