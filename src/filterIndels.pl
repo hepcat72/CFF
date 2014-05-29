@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.12';
+my $software_version_number = '1.13';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -4792,7 +4792,7 @@ sub incompatible
 		last;
 	      }
 	  }
-	warning("This script was tested muscle with Muscle version 3.8.31.  ",
+	warning("This script was tested with Muscle version 3.8.31.  ",
 		"Your version appears to be [$vnum], thus it may not work ",
 		"properly.") unless($ok);
       }
