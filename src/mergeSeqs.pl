@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.1';
+my $software_version_number = '2.5';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -41,7 +41,7 @@ my $version             = 0;
 my $overwrite           = 0;
 my $skip_existing       = 0;
 my $header              = 0;
-my $error_limit         = 50;
+my $error_limit         = 5;
 my $dry_run             = 0;
 my $use_as_default      = 0;
 my $defaults_dir        = (sglob('~/.rpst'))[0];
@@ -235,7 +235,7 @@ if(scalar(@$input_files) == 0 && isStandardInputFromTerminal())
 #supplied
 if(scalar(@$outdirs) && !defined($outfile_suffix) && !defined($tab_suffix))
   {
-    error("An sequence (-o) or tab (-x) suffix is required if an ",
+    error("A sequence (-o) or tab (-x) suffix is required if an ",
 	  "output directory (--outdir) is supplied.");
     quit(-8);
   }
@@ -439,14 +439,24 @@ else
 	 "] input file groups, [$num_outfiles] output files, and [",
 	 scalar(@$mapfiles),"] map files.")}
 
+my $abund_parse_errs = {};
+my $diff_sizes       = 0;
+
 #foreach my $input_file_set (@$input_files)
 foreach my $set_num (0..$#$input_file_sets)
   {
     $input_file         = $input_file_sets->[$set_num]->[0];
-    my $current_outfile = $input_file_sets->[$set_num]->[1];
+    my $tmp_cur_outfile = $input_file_sets->[$set_num]->[1];
     my $current_mapfile = $input_file_sets->[$set_num]->[2];
     my $outfile_stub    = $outfile_stub_sets->[$set_num]->[0];
+    my $current_outfile = $outfile_stub_sets->[$set_num]->[1];
     my $tmp_trim_size   = $trim_size;
+
+    #If an explicit path was provided with the output library file, use it
+    #instead of the one with the outdir replacement. This is, after all, an
+    #outfile option.
+    if($tmp_cur_outfile =~ m%/% || $tmp_cur_outfile eq 'STDOUT')
+      {$current_outfile = $tmp_cur_outfile}
 
     if(defined($current_outfile) && $current_outfile eq 'STDOUT')
       {undef($current_outfile)}
@@ -575,12 +585,8 @@ foreach my $set_num (0..$#$input_file_sets)
 	      {$abundance = $1}
 	    elsif($abundance_pattern ne '')
 	      {
-		warning("Unable to parse abundance from defline: [$def] ",
-			"in file: [$input_file] using pattern: ",
-			"[$abundance_pattern].  Please either fix the ",
-			"defline or use a different pattern to extract ",
-			"the abundance value.  Assuming abundance = 1.  ",
-			"Use \"-p ''\" to to avoid this warning.");
+		$abund_parse_errs->{FILES}->{$input_file}++;
+		$abund_parse_errs->{TOTAL}++;
 		$abundance = 1;
 	      }
 	    else
@@ -720,6 +726,16 @@ foreach my $set_num (0..$#$input_file_sets)
 	closeOut(*OUTPUT) if(defined($current_outfile));
 	closeOut(*ABUND) if(defined($current_mapfile));
       }
+  }
+
+if(scalar(keys(%$abund_parse_errs)))
+  {
+    warning("Unable to parse abundance from [$abund_parse_errs->{TOTAL}] ",
+	    "deflines in [",scalar(keys(%{$abund_parse_errs->{FILES}})),
+	    "] file(s) using pattern: [$abundance_pattern].  Please either ",
+	    "fix the defline or use a different pattern to extract the ",
+	    "abundance value.  Assuming abundance = 1.  Use \"-p ''\" to to ",
+	    "avoid this warning.");
   }
 
 if($isglobal)
@@ -1976,6 +1992,7 @@ sub getFileSets
 	my @errors = map {my @x=@$_;map {ref(\$_)} @x}
 	  grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
 	    @$file_types_array;
+	debug("ERRORS ARRAY: [",join(',',@errors),"].") if($DEBUG < -99);
 	#Allow them to have submitted an array of arrays of scalars
 	if(scalar(@errors) == scalar(map {@$_} @$file_types_array) &&
 	   scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
@@ -1983,9 +2000,11 @@ sub getFileSets
 	else
 	  {
 	    #Reset the errors because I'm not looking for SCALARs anymore
-	    @errors = map {my @x=@$_;map {ref($_)} @x}
-	      grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
-		@$file_types_array;
+	    @errors = map {my @x=@$_;'[' .
+			     join('],[',
+				  map {ref($_) eq '' ? 'SCALAR' : ref($_)} @x)
+			       . ']'}
+	      @$file_types_array;
 	    error("Expected an array of arrays of arrays for the first ",
 		  "argument, but got an array of arrays of [",
 		  join(',',@errors),"].");
@@ -2661,8 +2680,9 @@ sub mkdirs
 			elsif(!$use_as_default && $overwrite)
 			  {warning('The --overwrite flag will not empty or ',
 				   'delete existing output directories.  If ',
-				   'you wish to delete existing output ',
-				   'directories, you must do it manually.')}
+				   'you wish to delete the existing output ',
+				   "directory: [$dir], you must do it ",
+				   'manually.')}
 		      }
 		    elsif($use_as_default || !$dry_run)
 		      {
@@ -3077,9 +3097,9 @@ rleach\@genomics.princeton.edu
                 refer to the README for general information about the package.
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
-                   ungapped, aligned, and same-sized sequences and with a
-                   unique identifier followed by an optional abundance value on
-                   the defline.  Default defline format looks like this:
+                   ungapped, and aligned sequences and with a unique identifier
+                   followed by an optional abundance value on the defline.
+                   Default defline format looks like this:
 
                    >lib_6;size=1002;
 
@@ -3325,7 +3345,7 @@ sub usage
      --header             OPTIONAL Print commented script version, date, and
                                    command line call to outfile(s).
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
-     --error-type-limit   OPTIONAL [50] Limit for each type of error/warning.
+     --error-type-limit   OPTIONAL [5] Limit for each type of error/warning.
                                    0 = no limit.  Also see --quiet.
      --dry-run            OPTIONAL Run without generating output files.
      --version            OPTIONAL Print version info.
@@ -3413,15 +3433,18 @@ end_print
      -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
         pattern                    used to extract the abundance value from the
                                    fasta/fastq defline of the input sequence
-                                   file.  The abundance value pattern must be
-                                   surrounded by parenthases.  If no
-                                   parenthases are provided, the entire pattern
-                                   will be assumed to be the abundance value.
-                                   Abundance values are captured this way to
-                                   allow flexibility of file format.  Note, the
-                                   entire defline, without the trailing hard
-                                   return but including the '>' or '\@'
-                                   character is available to match against.
+                                   file.  If there is no abundance values in
+                                   your sequence files, supply -p '' to count
+                                   each sequence once.  The abundance value
+                                   pattern must be surrounded by parenthases.
+                                   If no parenthases are provided, the entire
+                                   pattern will be assumed to be the abundance
+                                   value.  Abundance values are captured this
+                                   way to allow flexibility of file format.
+                                   Note, the entire defline, without the
+                                   trailing hard return but including the '>'
+                                   or '\@' character is available to match
+                                   against.
      -d|--abund-delimiter OPTIONAL [size=$value_subst_str;] The abundance
                                    value that is appended to the global ID on
                                    the defline of the merged sequence file (-f)
@@ -3476,7 +3499,7 @@ end_print
                                    Includes column headers with -u and -x.
                                    Includes template version with --extended.
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
-     --error-type-limit   OPTIONAL [50] Limits each type of error/warning to
+     --error-type-limit   OPTIONAL [5] Limits each type of error/warning to
                                    this number of reports.  Intended to
                                    declutter output.  Note, a summary of
                                    warning/error types is printed when the
