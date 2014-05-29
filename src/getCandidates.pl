@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.7';
+my $software_version_number = '1.9';
 my $created_on_date         = '3/24/2014';
 
 ##
@@ -71,7 +71,8 @@ my $GetOptHash =
 			             [sglob($_[1])])},      #       is supplied
    '<>'                      => sub {push(@$input_files,    #REQUIRED unless -i
 				     [sglob($_[0])])},      #       is supplied
-   'o|outfile-suffix|reals-suffix=s' => \$outfile_suffix,   #OPTIONAL [undef]
+   'o|outfile-suffix|candidates-suffix=s'                   #OPTIONAL [undef]
+                             => \$outfile_suffix,
    'outdir=s'                => sub {push(@$outdirs,        #OPTIONAL
 				     [sglob($_[1])])},
    'h|nmag-threshold=s'      => \$nmag_threshold,           #OPTIONAL [30]
@@ -369,7 +370,6 @@ foreach my $set_num (0..$#$input_file_sets)
 
 	my($def,$seq) = @$rec;
 
-	my $id        = '';
 	my $abundance = 0;
 	my $n0        = '';
 	if($def =~ /\s*[\@\>]/)
@@ -412,7 +412,7 @@ foreach my $set_num (0..$#$input_file_sets)
 					 $sigdig,
 					 $value_subst_str);
 
-		if(isReal($n0,$abundance,$nmag_threshold,$size_threshold))
+		if(isCandidate($n0,$abundance,$nmag_threshold,$size_threshold))
 		  {print($outrec)}
 		elsif(defined($fakes_suffix))
 		  {print FAKES ($outrec)}
@@ -446,7 +446,8 @@ foreach my $set_num (0..$#$input_file_sets)
 				     $sigdig,
 				     $value_subst_str);
 
-	    if(isReal($trec->[2],$trec->[3],$nmag_threshold,$size_threshold))
+	    if(isCandidate($trec->[2],$trec->[3],$nmag_threshold,
+			   $size_threshold))
 	      {print($outrec)}
 	    elsif(defined($fakes_suffix))
 	      {print FAKES ($outrec)}
@@ -2466,7 +2467,7 @@ end_print
                    above format.
 
 * OUTPUT FORMAT: Fasta format with the optional N/N0 appended to the defline.
-                 Applies to both the "reals" (-o) and "fakes" (-f) output.
+                 Applies to both the "candidates" (-o) and "fakes" (-f) output.
                  E.g.:
 
 >div_75;size=11;N0=0;N/N0=110000000000;
@@ -2580,33 +2581,34 @@ sub usage
                                    file format and advanced usage.  *No flag
                                    required.
      -o|--outfile-suffix  OPTIONAL [nothing] Outfile extension appended to
-        --reals-suffix             input files to create an output file of
-                                   sequences deemed to NOT be the result of a
-                                   PCR substitution error, i.e. "real".  Output
-                                   defaults to standard output if not supplied.
-                                   Empty string (with --overwrite) overwrites
-                                   input files (unless --outdir  supplied).
-                                   Appends to the string "STDIN" when standard
-                                   input is detected (unless a stub is provided
-                                   via -i).  See --help for file format and
-                                   advanced usage.  See -f to also save "fakes"
-                                   in a separate file.
+        --candidates-              input files to create an output file of
+          suffix                   sequences deemed to NOT be the result of a
+                                   PCR substitution error, i.e. a "candidate".
+                                   Output defaults to standard output if not
+                                   supplied.  Empty string (with --overwrite)
+                                   overwrites input files (unless --outdir
+                                   supplied).  Appends to the string "STDIN"
+                                   when standard input is detected (unless a
+                                   stub is provided via -i).  See --help for
+                                   file format and advanced usage.  See -f to
+                                   also save "fakes" in a separate file.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
      -h|--nmag-threshold  OPTIONAL [30] The abundance/N0 threshold at or above
-                                   which a sequence will be deemed real or the
-                                   result of a PCR substitution error (i.e.
-                                   "fake") where N0 is the expected abundance
-                                   if the sequence was the result of an error
-                                   (see nZeros.pl description in --help).  The
-                                   sequence must also pass the abundance
-                                   threshold (see -a).
+                                   which a sequence will be deemed potentially
+                                   real (i.e. a candidate) or the result of a
+                                   PCR substitution error (i.e. "fake") where
+                                   N0 is the expected abundance if the sequence
+                                   was the result of an error (see nZeros.pl
+                                   description in --help).  The sequence must
+                                   also pass the abundance threshold (see -a).
      -a|--abundance-      OPTIONAL [10] The abundance threshold at or above
         threshold                  which a sequence will be deemed abundant
-                                   enough to determine whether it is real or
-                                   the result of a PCR substitution error (i.e.
-                                   "fake").  The sequence then must pass the
-                                   abundance/N0 threshold (see -h).
+                                   enough to determine whether it is
+                                   potentially real or the result of a PCR
+                                   substitution error (i.e. "fake").  The
+                                   sequence then must pass the abundance/N0
+                                   threshold (see -h).
      -t|--sequence-       OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
         filetype                   type.  Using a value other than auto will
                                    make file reading faster.  "auto" cannot be
@@ -2637,7 +2639,7 @@ sub usage
                                    when standard input is detected (unless a
                                    stub is provided via -i).  See --help for
                                    file format and advanced usage.  See -o to
-                                   save "real" sequences in a separate file.
+                                   save candidate sequences in a separate file.
      -p|--abundance-      OPTIONAL [size=(\\d+);] A perl regular expression
         pattern                    used to extract the abundance value from the
                                    fasta/fastq defline of the input sequence
@@ -3500,7 +3502,7 @@ sub buildSeqRec
     return($ans);
   }
 
-sub isReal
+sub isCandidate
   {
     my $n0               = $_[0];
     my $abundance        = $_[1];
