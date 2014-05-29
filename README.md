@@ -3,28 +3,34 @@ CFF README
 Created: 2/12/2014
 Copyright 2014
 
-
 DESCRIPTION
 -----------
 
-This analysis package, called 'CFF' (Cluster Free Filtering), provides a way to filter metagenomic data for likely sequencing errors.  The pipeline is a 7-step process:
+This analysis package, called 'CFF' (Cluster Free Filtering), provides a way to filter metagenomic data for likely sequencing errors.  The pipeline can be run with a single command (run_cff.sh), but each script component is also available.  The pipeline is an 8-step process:
 
-	1. mergeSeqs.pl     merges sequence files with new unique IDs
+	run_cff.sh runs these steps (step 3 is optional):
+	1. mergeSeqs.pl     merges, truncates, & names sequence samples
 	2. neighbors.pl     generates a list of hamming distance 1 seqs
 	3. errorRates.pl    generates a Z-Score histogram (see -h)
 	4. errorRates.pl    generates error rate estimates (see -z)
 	5. nZeros.pl        generates expected error abundances
 	6. getCandidates.pl filters sequences by N/N0 threshold
-	7. filterIndels.pl  filters less abundant sequences with indels
+	7. getReals.pl      filters less frequent/chimeric candidates
+	8. filterIndels.pl  filters less abundant sequences with indels
 
-Use these scripts when you have metagenomic samples of ungapped, aligned, & same-sized sequences, to help give you an idea which sequences might be real and which are the result of PCR substitution errors.  The method employed in the filtering does not make use of clustering, but rather exploits low sequencing error rates to gauge the amount of errors one would expect (N0) after observing safely-called errors from all hamming distance 1 neighbor sequences.  The N0 expected error abundances are used to compare with actual abundance and separated using a simple threshold (N/N0).  I.e. If the actual abundance is much larger than the abundance you would expect to see if a sequence is the result of PCR substitution errors, then you would expect the sequence to be real (i.e. exist in the original sample).  The pipeline is designed to filter for errors that are the result of PCR substitutions.  However, and additional post-filtering step has been provided to remove lesser abundant sequences that only differ from more abundant sequences by indels.
+Use these scripts when you have metagenomic samples of ungapped & aligned sequences to help give you an idea which sequences might be real and which are likely the result of PCR substitution errors.  The method employed in the filtering does not make use of clustering, but rather exploits low sequencing error rates to gauge the amount of errors one would expect (N0) after observing safely-called errors from all hamming distance 1 neighbor sequences.  The N0 expected error abundances are used to compare with actual abundance and separated using a simple threshold (N/N0).  I.e. If the actual abundance is much larger than the abundance you would expect to see if a sequence is the result of PCR substitution errors, then you would expect the sequence to be real (i.e. exist in the original sample).  Across a series of samples (e.g. a time-series), each with candidate sequences, putative "real" sequences are more stringently filtered by removing predicted chimeras and requiring a minimum number of candidate "nominations".
+
+The pipeline is designed to filter for errors that are the result of PCR substitutions.  However, an additional post-filtering step has been provided to remove lesser abundant sequences that only differ from more abundant sequences by indels.
 
 Helpful definitions:
 
-        Candidate:         A sequence that is presumed to not be the
-	                   result of a PCR substitution error and is
-	                   believed to exist in the original biological
-	                   sample.
+        Candidate:         A sequence that is suspected to not be the
+	                   result of a PCR substitution error and may
+	                   exist in the original biological sample.
+	Real sequence:     A candidate sequence that was found in an
+	                   arbitrary minimum threshold number of
+	                   samples (and may have been optionally
+	                   screened for chimerism).
 	Fake sequence:     A sequence that is presumed to be the result
 	                   of a PCR substitution error and is believed
 	                   to not exist in the original biological
@@ -83,7 +89,7 @@ Read LICENSE
 DOCUMENTATION
 -------------
 
-Other than this README and the LICENSE, documentation is in the scripts themselves and can be viewed by supplying --help (or --advanced-help).  Usage can be viewed by simply running the scripts without any parameters.
+Other than this README and the LICENSE, documentation is in the scripts themselves and can be viewed by supplying --help (or --help --extended).  Usage can be viewed by simply running the scripts without any parameters.
 
 DOWNLOAD
 --------
@@ -95,10 +101,13 @@ INSTALL
 
 Dependencies:
 
-	muscle - required by filterIndels.pl
+	muscle - alignment tool required by filterIndels.pl
 	http://www.drive5.com/muscle/downloads.htm
 
-Install the above dependency (a sequence alignment tool) and make sure muscle is in your PATH, then install CFF.  You may install muscle afterwards, but you will see an error.
+	uchime (i.e. usearch) - chimera tool required by getReals.pl
+	http://drive5.com/uchime/uchime_download.html
+
+Install the above dependencies and make sure muscle is in your PATH, then install CFF.  You may install muscle afterwards, but you will see an error.
 
 In a terminal window, cd into the CFF directory and run the following commands:
 
@@ -106,28 +115,38 @@ In a terminal window, cd into the CFF directory and run the following commands:
 	make
 	make install
 
-To run filterIndels, you need to have muscle installed and in your PATH.  If it's not in your path, you can supply the muscle executable with full path to the -y option.  You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.
+To run filterIndels.pl without error, you need to have muscle installed and in your PATH.  If it's not in your path, you can supply the muscle executable with full path to the -y option.  You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.
+
+To run getReals.pl with the -f option (implying candidates should be filtered for chimeras) without error, you need to have uchime installed and in your PATH.  If it's not in your path, you can supply the uchime executable with full path to the -y option.  You can install CFF without installing uchime.  If you want to run getReals.pl with -f, you can install uchime at a later time.
 
 EXAMPLE
 -------
 
-Test data has been provided, so it has been included in this example run.  Note that the example does not use mergeSeqs.pl.  Running mergeSeqs.pl is not required if you already have a sequence file with unique identifiers.
+Some test data has been provided, and used in the following examples.
 
-	neighbors.pl -i sample/6_1.drp.fna -o .nbrs
+EXAMPLE 1 (run these commands):
 
-	errorRates.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.nbrs -h .hst
+	cd samples
+	tcsh run_example1.tcsh
 
-(at this point, you may plot the histogram data in sample/6_1.drp.fna.hst to select a z score cutoff.  We'll use 3.5 in the next step.)
+Example 1 will run these commands:
 
-	errorRates.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.nbrs -z 3.5 -o .err
+mergeSeqs.pl     Caporaso_FASTA/L6S2?_19???.fna -f example1.glib --outdir Caporaso_FASTA_out -o .lib -p ''
+neighbors.pl     Caporaso_FASTA_out/example1.glib -o .nbrs
+errorRates.pl    Caporaso_FASTA_out/example1.glib -n Caporaso_FASTA_out/example1.glib.nbrs -z 2 -o .erates
+nZeros.pl        Caporaso_FASTA_out/L6S2?_19???.fna.lib -n Caporaso_FASTA_out/example1.glib.nbrs -r Caporaso_FASTA_out/example1.glib.erates -o .n0s
+getCandidates.pl Caporaso_FASTA_out/L6S2?_19???.fna.lib.n0s -o .cands -f .rejects -h 30
+getReals.pl      Caporaso_FASTA_out/L6S2?_19???.fna.lib.n0s.cands -d 'Caporaso_FASTA_out/L6S2?_19???.fna.lib' -f Caporaso_FASTA_out/example1.glib -k 2
+filterIndels.pl  Caporaso_FASTA_out/example1.glib.reals -o .filt -f .indels
 
-	nZeros.pl -i sample/6_1.drp.fna -n sample/6_1.drp.fna.nbrs -r sample/6_1.drp.fna.err -o .n0
+Note that in the first command (mergeSeqs.pl), we turn off abundance value parsing from the fasta deflines by supplying -p ''.  While the command will work without -p '', it will generate an error because the default value for -p expects to see abundance patterns on deflines in the form "size=#;".  If you never intend to save abundance values on your deflines, you may supply --save-as-default -p '' to save the setting.
 
-	getCandidates.pl -i sample/6_1.drp.fna.n0 -o .cands
+Example 2 (run these commands):
 
-	filterIndels.pl -i sample/6_1.drp.fna.n0.cands -o .filt
+	cd samples
+	tcsh run_example2.tcsh
 
-For usage and additional information, each command will generate a usage message if run with no arguments.  Each command will also give details on file formats and additional information when run with the --help flag.
+Example 2 will run pretty much the same commands, only with fastq files instead of fasta.
 
 CONTACT
 -------
@@ -155,7 +174,7 @@ Princeton, NJ
 TROUBLESHOOTING
 ---------------
 
-Each script comes with a debug mode.  Supply the --debug flag to help figure out issues.  Debug flags can be submitted multiple times, or with an integer parameter to increase the debug verbosity.  This will add line numbers to errors and warnings as well as print ongoing status messages and in some cases, calculation formulas.
+Using --verbose can sometimes help identify a problem.  Each script also comes with a debug mode.  Supply the --debug flag to help figure out issues.  Debug flags can be submitted multiple times, or with an integer parameter to increase the amount of debug output.  This will add line numbers to errors and warnings as well as print ongoing status messages and in some cases, calculation formulas.
 
 KNOWN ISSUES
 ------------
