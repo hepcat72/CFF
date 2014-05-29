@@ -29,7 +29,6 @@ src/errorRates.pl
 src/filterIndels.pl
 src/getCandidates.pl
 src/getReals.pl
-src/getReals.pl.zip
 src/mergeSeqs.pl
 src/neighbors.pl
 src/nZeros.pl
