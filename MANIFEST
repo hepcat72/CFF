@@ -32,4 +32,5 @@ src/getReals.pl
 src/mergeSeqs.pl
 src/neighbors.pl
 src/nZeros.pl
-src/run_cff.sh
+src/run_CFF_on_FastA.tcsh
+src/run_CFF_on_FastQ.tcsh
