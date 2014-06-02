@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.6';
+my $software_version_number = '2.7';
 my $created_on_date         = '3/26/2014';
 
 ##
