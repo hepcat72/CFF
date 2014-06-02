@@ -6,9 +6,8 @@ Copyright 2014
 DESCRIPTION
 -----------
 
-This analysis package, called 'CFF' (Cluster Free Filtering), provides a way to filter metagenomic data for likely sequencing errors.  The pipeline can be run with a single command (run_cff.sh), but each script component is also available.  The pipeline is an 8-step process:
+This analysis package, called 'CFF' (Cluster Free Filtering), provides a way to filter metagenomic data for likely sequencing errors.  The pipeline can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available.  The pipeline is an 8-step process:
 
-	run_cff.sh runs these steps (step 3 is optional):
 	1. mergeSeqs.pl     merges, truncates, & names sequence samples
 	2. neighbors.pl     generates a list of hamming distance 1 seqs
 	3. errorRates.pl    generates a Z-Score histogram (see -h)
@@ -146,7 +145,7 @@ Example 2 (run these commands):
 	cd samples
 	tcsh run_example2.tcsh
 
-Example 2 will run pretty much the same commands, only with fastq files instead of fasta.
+Example 2 will run pretty much the same commands, only it starts with fastq files instead of fasta and it uses usearch to quality-filter & de-replicate the sequences.
 
 CONTACT
 -------
