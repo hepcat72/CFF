@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.5';
+my $software_version_number = '2.6';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -235,7 +235,7 @@ if(scalar(@$input_files) == 0 && isStandardInputFromTerminal())
 #supplied
 if(scalar(@$outdirs) && !defined($outfile_suffix) && !defined($tab_suffix))
   {
-    error("A sequence (-o) or tab (-x) suffix is required if an ",
+    error("A sequence suffix (-o) or tab suffix (-x) is required if an ",
 	  "output directory (--outdir) is supplied.");
     quit(-8);
   }
@@ -3096,41 +3096,41 @@ rleach\@genomics.princeton.edu
                 the package called 'cff' (cluster free filtering).  Please
                 refer to the README for general information about the package.
 
-* SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
-                   ungapped, and aligned sequences and with a unique identifier
-                   followed by an optional abundance value on the defline.
-                   Default defline format looks like this:
+* INPUT SEQ FORMAT: Fasta or fastq format file containing a set of unique,
+  -i                ungapped, and aligned sequences and with a unique
+                    identifier followed by an optional abundance value on the
+                    defline.  Default defline format looks like this:
 
-                   >lib_6;size=1002;
+                    >lib_6;size=1002;
 
-                   Any defline format can be used as long as it is consistent,
-                   both pieces of information are present, and the identifier
-                   is the first unbroken string after the defline character.
-                   The unique ID may contain the abundance value.  Use -p to
-                   extract the abundance values from deflines not in the above
-                   format.  Use -q to extract sequence IDs from deflines not in
-                   the above format.
+                    Any defline format can be used as long as it is consistent,
+                    both pieces of information are present, and the identifier
+                    is the first unbroken string after the defline character.
+                    The unique ID may contain the abundance value.  Use -p to
+                    extract the abundance values from deflines not in the above
+                    format.  Use -q to extract sequence IDs from deflines not
+                    in the above format.
 
-                   Notes, duplicate IDs in a sequence file will cause sequences
-                   to be skipped with an error.  If no abundance value can be
-                   parsed from a defline, it is assumed to be 1.  Identical
-                   sequences in 1 file will cause their abundances to be
-                   summed, though this is not the primary purpose of this
-                   script.  The format of deflines resulting from such a sum is
-                   not guaranteed to remain the same in subsequent versions of
-                   this script.
+                    Notes, duplicate IDs in a sequence file will cause
+                    sequences to be skipped with an error.  If no abundance
+                    value can be parsed from a defline, it is assumed to be 1.
+                    Identical sequences in 1 file will cause their abundances
+                    to be summed, though this is not the primary purpose of
+                    this script.  The format of deflines resulting from such a
+                    sum is not guaranteed to remain the same in subsequent
+                    versions of this script.
 
-* SEQ FORMAT: (Both for merged and unmerged output files.)  Fasta format with a
-              numeric sequence ID.  Records are output in decreasing order of
-              abundance.  Example of a defline:
+* OUTPUT SEQ FORMAT: (Both for merged and unmerged output files.)  Fasta format
+  -f,-o              with a numeric sequence ID.  Records are output in
+                     decreasing order of abundance.  Example of a defline:
 
-              >1;size=12345;
+                     >1;size=12345;
 
-              See HEADER FORMAT in the --extended --help output for additional
-              header information.
+                     See HEADER FORMAT in the --extended --help output for
+                     additional header information.
 
 * TAB FORMAT: A tab-delimited text file with 2 columns: GlobalID and Abundance.
-              If --header is supplied, a header line will be at the top of the
+  -x,-u       If --header is supplied, a header line will be at the top of the
               output file, like this:
 
               #GlobalID       Abundance
@@ -3662,16 +3662,21 @@ sub getNextFastaRec
       }
 
     my $parent_id_check = {};
-    my $first_loop = 0;
-    my $line_num = 0;
-    my $line     = '';
-    my $defline  = '';
+    my $first_loop      = 0;
+    my $line_num        = 0;
+    my $verbose_freq    = 1000;
+    my $line            = '';
+    my $defline         = '';
     my($seq);
 
     #For each line in the current input file
     while(getLine($handle))
       {
-	$line_num = $.;
+	$line_num++;
+
+	verboseOverMe("Reading line [$line_num].")
+	  unless($line_num % $verbose_freq);
+
 	$line = $_;
 
 	next if($line !~ /\S/ || $line =~ /^\s*#/);
@@ -4034,7 +4039,7 @@ sub getNextFastqRec
       }
 
     my $parent_id_check  = {};
-    my $first_loop       = 0;
+    my $first_loop       = 1;
     my $line_num         = 0;
     my $line             = '';
     my $defline          = '';
@@ -4042,14 +4047,21 @@ sub getNextFastqRec
     my $qual             = '';
     my $getting_sequence = 0;
     my $comment_buffer   = '';
+    my $verbose_freq     = 1000;
 
     #For each line in the current input file
     while(getLine($handle))
       {
-	$line_num = $.;
+	$line_num++;
+
+	verboseOverMe("Reading line [$line_num].")
+	  unless($line_num % $verbose_freq);
+
 	$line = $_;
 
-	next if($line !~ /\S/ || $line =~ /^\s*#/);
+	next if($line !~ /\S/ || ($first_loop && $line =~ /^\s*#/));
+
+	$first_loop = 0;
 
 	#If this is the defline, or the quality length is the same as the seq
 	if(length($qual) >= length($seq) && /^\s*\@[^\n\r]*/)
