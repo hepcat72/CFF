@@ -452,7 +452,10 @@ foreach my $set_num (0..$#$input_file_sets)
 
 	    if(isCandidate($trec->[2],$trec->[3],$nmag_threshold,
 			   $size_threshold))
-	      {print($outrec)}
+	      {
+		print($outrec);
+		$found_any = 1;
+	      }
 	    elsif(defined($fakes_suffix))
 	      {print FAKES ($outrec)}
 	  }
