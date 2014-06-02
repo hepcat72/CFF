@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.7';
+my $software_version_number = '2.8';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -420,6 +420,7 @@ my $global_check     = {};
 my $cnt              = 0;
 my $seq_hash         = {};
 my $abundance_hash   = {};
+my $abund_check      = {};
 my $opened_this_loop = 0;
 my $input_file       = '';
 my $skipped          = {};
@@ -663,6 +664,8 @@ foreach my $set_num (0..$#$input_file_sets)
 	  ->{$seq}->{DEF} .= $def;
 	$abundance_hash->{$file_key}->{$file_key2}->{SRCS}->{$outfile_stub}
 	  ->{$seq}->{ABUND} += $abundance;
+	$abund_check->{$abundance_hash->{$file_key}->{$file_key2}->{SRCS}
+		       ->{$outfile_stub}->{$seq}->{ABUND}}++;
 
 	$last_len = $len;
       }
@@ -732,6 +735,15 @@ if(scalar(keys(%$abund_parse_errs)))
 	    "fix the defline or use a different pattern to extract the ",
 	    "abundance value.  Assuming abundance = 1.  Use \"-p ''\" to to ",
 	    "avoid this warning.");
+  }
+elsif((!defined($abundance_pattern) || $abundance_pattern eq '') &&
+      exists($abund_check->{1}) && scalar(keys(%$abund_check)) == 1)
+  {
+    error("Abundance pattern (-p) is empty and there was only 1 of each ",
+	  "sequence.  Please make sure you are either submitting raw ",
+	  "sequence data or you have supplied a valid abundance pattern ",
+	  "(-p).");
+    quit(8);
   }
 
 if($isglobal)
