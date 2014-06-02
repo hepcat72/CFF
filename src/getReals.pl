@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.2';
+my $software_version_number = '1.3';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -30,9 +30,9 @@ local $SIG{__WARN__} = sub {my $err = $_[0];chomp($err);
 			    warning("Runtime warning: [$err].")};
 
 #Declare & initialize variables.  Provide default values here.
+my($fakes_suffix);
 my $chime_aln_suffix  = '.chim-alns';
 my $reals_suffix      = '.reals';
-my $fakes_suffix      = '.fakes';
 my $sum_suffix        = '.smry';
 my $chime_suffix      = '.chim';
 my $input_files       = [];
@@ -89,7 +89,7 @@ my $GetOptHash =
 					  sglob($_[1]))},
    's|summary-suffix=s'      => \$sum_suffix,               #OPTIONAL [.smry]
    'r|reals-suffix=s'        => \$reals_suffix,             #OPTIONAL [.reals]
-   'fakes-suffix=s'          => \$fakes_suffix,             #OPTIONAL [.fakes]
+   'fakes-suffix=s'          => \$fakes_suffix,             #OPTIONAL [nooutpt]
    'chimes-suffix=s'         => \$chime_suffix,             #OPTIONAL [.chim]
    'chimes-aln-suffix=s'     => \$chime_aln_suffix,         #OPTIONAL
                                                             #       [.chim-aln]
@@ -302,7 +302,8 @@ elsif($DEBUG < -99)
 	 '(!defined($sum_suffix)       || $sum_suffix       ne ""))',
 	 "\nif(",scalar(@$output_files)," == 0 && ",scalar(@$library_files),
 	 " && (!",defined($reals_suffix),"     || $reals_suffix     ne '') ",
-	 "&& (!",defined($fakes_suffix),"     || $fakes_suffix     ne '') && ",
+	 "&& (!",defined($fakes_suffix),"     || ",
+	 (defined($fakes_suffix) ? $fakes_suffix : 'undef'),"     ne '') && ",
 	 "(!",defined($chime_suffix),"     || $chime_suffix     ne '') && (!",
 	 defined($chime_aln_suffix)," || $chime_aln_suffix ne '') && (!",
 	 defined($sum_suffix),"       || $sum_suffix       ne ''))")}
@@ -3963,7 +3964,7 @@ sub usage
                                    goes to standard out if -o is not provided.
      --reals-suffix       OPTIONAL [.reals] Extension appended to the output
                                    stub (-o) for outputting "real" sequences.
-     --fakes-suffix       OPTIONAL [.fakes] Extension appended to the output
+     --fakes-suffix       OPTIONAL [no output] Extension appended to the output
                                    stub (-o) for outputting "fake" sequences
                                    (fewer candidate occurrences than -k).
      --chimes-suffix      OPTIONAL [.chim] Extension appended to the output
@@ -4073,7 +4074,7 @@ end_print
                                    suffix and --chimes-suffix to also save
                                    "fakes" and chimeras in separate files.
                                    Requires -o.
-     --fakes-suffix       OPTIONAL [.fakes] Extension appended to the output
+     --fakes-suffix       OPTIONAL [no output] Extension appended to the output
                                    stub (-o) for outputting "fake" sequences
                                    (fewer candidate occurrences than -k).  May
                                    contain unidentified chimeras that did not
