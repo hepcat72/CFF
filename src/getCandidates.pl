@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.10';
+my $software_version_number = '1.11';
 my $created_on_date         = '3/24/2014';
 
 ##
@@ -44,7 +44,7 @@ my $error_limit         = 50;
 my $dry_run             = 0;
 my $use_as_default      = 0;
 my $defaults_dir        = (sglob('~/.rpst'))[0];
-my $nmag_threshold      = 30;
+my $nmag_threshold      = 10;
 my $size_threshold      = 10;
 my $abundance_pattern   = 'size=(\d+);';
 my $n0_pattern          = 'N0=([^;]+);';
@@ -75,7 +75,7 @@ my $GetOptHash =
                              => \$outfile_suffix,
    'outdir=s'                => sub {push(@$outdirs,        #OPTIONAL
 				     [sglob($_[1])])},
-   'h|nmag-threshold=s'      => \$nmag_threshold,           #OPTIONAL [30]
+   'h|nmag-threshold=s'      => \$nmag_threshold,           #OPTIONAL [10]
    'a|abundance-threshold=s' => \$size_threshold,           #OPTIONAL [10]
    'l|n0-pattern=s'          => \$n0_pattern,               #OPTIONAL
                                                             #     [N0=([^;]+);]
@@ -2601,7 +2601,7 @@ sub usage
                                    also save "fakes" in a separate file.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
-     -h|--nmag-threshold  OPTIONAL [30] The abundance/N0 threshold at or above
+     -h|--nmag-threshold  OPTIONAL [10] The abundance/N0 threshold at or above
                                    which a sequence will be deemed potentially
                                    real (i.e. a candidate) or the result of a
                                    PCR substitution error (i.e. "fake") where

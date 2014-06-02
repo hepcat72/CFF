@@ -10,7 +10,7 @@ setenv FASTAS    `echo "$argv" | cut -f 3-999 -d " "`
 setenv STARTTIME `perl -e 'print(scalar(time()))'`
 setenv Z         2
 setenv K         2
-setenv MAG       30
+setenv MAG       10
 setenv LIB       global_library.fna
 setenv STUBS     `perl -e 'print(join(",",map {s%.*/%%;"$_"} @ARGV))' $FASTAS`
 
