@@ -1,6 +1,6 @@
 require 5.000;
 use ExtUtils::MakeMaker;
-my @scripts = qw(mergeSeqs.pl neighbors.pl errorRates.pl nZeros.pl getCandidates.pl getReals.pl filterIndels.pl);
+my @scripts = qw(mergeSeqs.pl neighbors.pl errorRates.pl nZeros.pl getCandidates.pl getReals.pl filterIndels.pl run_CFF_on_FastA.tcsh run_CFF_on_FastQ.tcsh);
 
 
 
