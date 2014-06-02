@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.1';
+my $software_version_number = '1.2';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -329,7 +329,7 @@ if(scalar(@$input_files) != scalar(@$drp_files))
       {$input_files = [[map {@$_} @$input_files]]}
     else
       {
-	error("-i was supplied [",scalar(@$input_files),"] time and -d was ",
+	error("-i was supplied [",scalar(@$input_files),"] times and -d was ",
 	      "supplied [",scalar(@$drp_files),"] times.  The numbers must ",
 	      "be the same.");
 	quit(6);
@@ -2461,16 +2461,21 @@ sub getFileSets
 		    my $new_outfile_stub = $dirname .
 		      ($dirname =~ /\/$/ ? '' : '/') . $stub;
 
-		    debug("Prepending directory $new_outfile_stub using [",
-			  "$file].") if($DEBUG < -99);
+		    debug("Prepended directory: [$new_outfile_stub] to ",
+			  "infile: [$file].")
+		      if($DEBUG < -99);
 
 		    push(@$stub_set,$new_outfile_stub);
 
-		    #Check for conflicting output file names that will
-		    #overwrite each other
-		    if(exists($unique_out_check->{$new_outfile_stub}))
+		    $unique_out_check->{$new_outfile_stub}->{$file}++;
+
+		    #Check for conflicting output file names from multiple
+		    #different input files that will overwrite one another
+		    #(the same output file from the same input file is OK -
+		    #we'll assume they won't open it more than once
+		    if(scalar(keys(%{$unique_out_check->{$new_outfile_stub}}))
+		       > 1)
 		      {$nonunique_found = 1}
-		    push(@{$unique_out_check->{$new_outfile_stub}},$file);
 		  }
 		else
 		  {push(@$stub_set,$stub)}
