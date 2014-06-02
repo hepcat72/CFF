@@ -556,8 +556,7 @@ foreach my $set_num (0..$#$input_file_sets)
     foreach $rec (@$recs)
       {
 	$rec_num++;
-	verboseOverMe("[$input_file] Reading record: [$rec_num].")
-	  unless($rec_num % $verbose_freq);
+	verboseOverMe("[$input_file] Reading record: [$rec_num].");
 
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
@@ -612,12 +611,9 @@ foreach my $set_num (0..$#$input_file_sets)
 	      }
 	    else
 	      {
-		if($seq =~ s/(.{$tmp_trim_size}).*/$1/)
-		  {
-		    $seq = $1;
-		    $len = $tmp_trim_size;
-		  }
-		else
+		$seq = substr($seq,0,$tmp_trim_size);
+		$len = $tmp_trim_size;
+		if(!defined($seq) || $seq eq '')
 		  {
 		    error("Unable to trim sequence: [$id], record: ",
 			  "[$rec_num] in file: [$input_file].");
@@ -3667,6 +3663,7 @@ sub getNextFastaRec
     my $verbose_freq    = 1000;
     my $line            = '';
     my $defline         = '';
+    my $seq_lines       = 0;
     my($seq);
 
     #For each line in the current input file
@@ -3685,14 +3682,15 @@ sub getNextFastaRec
 	    if($defline)
 	      {
 		my $solidseq =
-		  ($no_format ? $seq :
-		   formatSequence($seq));
+		  ($seq_lines == 1 || $no_format ?
+		   $seq : formatSequence($seq));
 		chomp($solidseq);
 		chomp($defline);
 
 		push(@{$main::{FASTABUFFER}->{$handle}},[$defline,$solidseq]);
 	      }
-	    $defline = $line;
+	    $defline   = $line;
+	    $seq_lines = 0;
 
 	    my $tmp_id = $defline;
 	    $tmp_id =~ s/^\s*>\s*//;
@@ -3717,8 +3715,7 @@ sub getNextFastaRec
 	    $seq     = $2;
 
 	    my $solidseq =
-	      ($no_format ? $seq :
-	       formatSequence($seq));
+	      ($seq_lines == 1 || $no_format ? $seq : formatSequence($seq));
 	    chomp($solidseq);
 	    chomp($defline);
 
@@ -3727,7 +3724,10 @@ sub getNextFastaRec
 	    undef($seq);
 	  }
 	else
-	  {$seq .= $line}
+	  {
+	    $seq .= $line;
+	    $seq_lines++;
+	  }
       }
 
     #Handle the last sequence (if there were any sequences)
@@ -4047,6 +4047,8 @@ sub getNextFastqRec
     my $qual             = '';
     my $getting_sequence = 0;
     my $comment_buffer   = '';
+    my $seq_lines        = 0;
+    my $qual_lines       = 0;
     my $verbose_freq     = 1000;
 
     #For each line in the current input file
@@ -4069,9 +4071,9 @@ sub getNextFastqRec
 	    if($defline ne '' || $seq ne '' || $qual ne '')
 	      {
 		my $solidseq =
-		  ($no_format ? $seq :
+		  ($seq_lines == 1 || $no_format ? $seq :
 		   formatSequence($seq));
-		$qual =~ s/[\s\r\n\t]+//g unless($no_format);
+		$qual =~ s/[\s\r\n\t]+//g if(!$no_format && $qual_lines > 1);
 		chomp($solidseq);
 		chomp($qual);
 		chomp($defline);
@@ -4079,7 +4081,9 @@ sub getNextFastqRec
 		push(@{$main::{FASTQBUFFER}->{$handle}},
 		     [$defline,$solidseq,$qual]);
 	      }
-	    $defline = $line;
+	    $defline    = $line;
+	    $seq_lines  = 0;
+	    $qual_lines = 0;
 
 	    my $tmp_id = $defline;
 	    $tmp_id =~ s/^\s*\@\s*//;
@@ -4100,6 +4104,7 @@ sub getNextFastqRec
 	elsif($getting_sequence)
 	  {
 	    s/\s+//g;
+	    $seq_lines++;
 	    if(/^[A-Za-z\n\.~]*$/)
 	      {$seq .= $_}
 	    else
@@ -4112,6 +4117,7 @@ sub getNextFastqRec
 	elsif($seq =~ /./)
 	  {
 	    s/\s+//g;
+	    $qual_lines++;
 	    if(/^[\!-\~]*$/)
 	      {$qual .= $_}
 	    else
