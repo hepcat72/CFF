@@ -466,7 +466,7 @@ foreach my $set_num (0..$#$input_file_sets)
   }
 
 unless($found_any)
-  {warning("No candidates found in any of the input files")}
+  {warning("No candidates found in any of the input files.")}
 
 verbose("[STDOUT] Output done.") if(!defined($outfile_suffix));
 
