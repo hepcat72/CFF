@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.9';
+my $software_version_number = '1.10';
 my $created_on_date         = '3/24/2014';
 
 ##
@@ -326,6 +326,7 @@ if(!isStandardOutputToTerminal() && $header)
 	 '#',scalar(getCommand(1)),"\n");}
 
 my $input_file = '';
+my $found_any = 0;
 
 #For each set of input files associated by getFileSets
 foreach my $set_num (0..$#$input_file_sets)
@@ -413,7 +414,10 @@ foreach my $set_num (0..$#$input_file_sets)
 					 $value_subst_str);
 
 		if(isCandidate($n0,$abundance,$nmag_threshold,$size_threshold))
-		  {print($outrec)}
+		  {
+		    print($outrec);
+		    $found_any = 1;
+		  }
 		elsif(defined($fakes_suffix))
 		  {print FAKES ($outrec)}
 	      }
@@ -460,6 +464,9 @@ foreach my $set_num (0..$#$input_file_sets)
     closeIn(*INPUT);
     closeOut(*OUTPUT) if(defined($outfile_suffix));
   }
+
+unless($found_any)
+  {warning("No candidates found in any of the input files.")}
 
 verbose("[STDOUT] Output done.") if(!defined($outfile_suffix));
 
