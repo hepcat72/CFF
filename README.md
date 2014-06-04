@@ -33,52 +33,52 @@ The pipeline is designed to filter for errors that are the result of sequencing 
 
 Helpful definitions:
 
-	Candidate:         A sequence that is suspected to not be the
-	                   result of a PCR substitution error and may
-	                   exist in the original biological sample.
-	Real sequence:     A candidate sequence that was found in an
-	                   arbitrary minimum threshold number of
-	                   samples (and may have been optionally
-	                   screened for chimerism).
-	Fake sequence:     A sequence that is presumed to be the result
-	                   of a PCR substitution error and is believed
-	                   to not exist in the original biological
-	                   sample.
-	Indel:             A DNA insertion or deletion.
-	Mother sequence:   A theoretical real sequence from which
-	                   erroneous sequences are derived.  Each
-	                   sequence in column 1 of the neighbors file
-	                   is referred to as a mother sequence when
-	                   comparing it to its neighbors on that row.
-	N0 ("N zero"):     The abundance of a sequence that would be
-	                   expected if it is the result of a PCR
-	                   substitution error.
-	N/N0:              A.k.a. the "abundance/N0" fraction.  This is
-	                   the abundance of a sequence divided by the
-	                   expected abundance if the sequence is a fake
-	                   sequence (i.e. the result of a PCR
-	                   substitution error).
-	Neighbor sequence: A sequence that differs by 1 substitution
-	                   from a mother sequence.  Also referred to as
-	                   "1st neighbor" or "hamming distance 1
-	                   neighbor".
-	Reverse Spillover: An error that reverses a previous error to
-	                   be correct by chance, or an error that
-	                   causes a real sequence to turn into a
-	                   different real sequence.
-	Z Score:           During the estimation of the error rates, a
-	                   Z Score is calculated for each neighbor.  It
-	                   is computed as:
+    Candidate:         A sequence that is suspected to not be the
+                       result of a PCR substitution error and may
+                       exist in the original biological sample.
+    Real sequence:     A candidate sequence that was found in an
+                       arbitrary minimum threshold number of
+                       samples (and may have been optionally
+                       screened for chimerism).
+    Fake sequence:     A sequence that is presumed to be the result
+                       of a PCR substitution error and is believed
+                       to not exist in the original biological
+                       sample.
+    Indel:             A DNA insertion or deletion.
+    Mother sequence:   A theoretical real sequence from which
+                       erroneous sequences are derived.  Each
+                       sequence in column 1 of the neighbors file
+                       is referred to as a mother sequence when
+                       comparing it to its neighbors on that row.
+    N0 ("N zero"):     The abundance of a sequence that would be
+                       expected if it is the result of a PCR
+                       substitution error.
+    N/N0:              A.k.a. the "abundance/N0" fraction.  This is
+                       the abundance of a sequence divided by the
+                       expected abundance if the sequence is a fake
+                       sequence (i.e. the result of a PCR
+                       substitution error).
+    Neighbor sequence: A sequence that differs by 1 substitution
+                       from a mother sequence.  Also referred to as
+                       "1st neighbor" or "hamming distance 1
+                       neighbor".
+    Reverse Spillover: An error that reverses a previous error to
+                       be correct by chance, or an error that
+                       causes a real sequence to turn into a
+                       different real sequence.
+    Z Score:           During the estimation of the error rates, a
+                       Z Score is calculated for each neighbor.  It
+                       is computed as:
 
-	                   z = (An - Amu) / Astddev
+                       z = (An - Amu) / Astddev
 
-	                   where An is the abundance of a particular
-	                   neighbor, Amu is the average neighbor
-	                   abundance, and Astddev is the standard
-	                   deviation of neighbor abundance.  It is then
-	                   used with a supplied threshold to filter out
-	                   potential real sequences from the estimation
-	                   of the error background.
+                       where An is the abundance of a particular
+                       neighbor, Amu is the average neighbor
+                       abundance, and Astddev is the standard
+                       deviation of neighbor abundance.  It is then
+                       used with a supplied threshold to filter out
+                       potential real sequences from the estimation
+                       of the error background.
 
 Note, each script is designed to handle multiple input files.  If you supply 1 of one type of file and 10 of another type of file, the same single file will be used for processing each of the other 10 files.  E.g.:
 
@@ -102,11 +102,11 @@ https://github.com/hepcat72/CFF/archive/master.zip
 
 Dependencies:
 
-	muscle - alignment tool required by filterIndels.pl
-	http://www.drive5.com/muscle/downloads.htm
+    muscle - alignment tool required by filterIndels.pl
+    http://www.drive5.com/muscle/downloads.htm
 
-	uchime (i.e. usearch) - chimera tool required by getReals.pl
-	http://drive5.com/uchime/uchime_download.html
+    uchime (i.e. usearch) - chimera tool required by getReals.pl
+    http://drive5.com/uchime/uchime_download.html
 
 Install the above dependencies and make sure muscle is in your PATH, then install CFF.  You may install muscle afterwards, but you will see an error.
 
@@ -125,6 +125,7 @@ To run getReals.pl with the -f option (implying candidates should be filtered fo
 In [1], we discuss the application of CFF to analyze a time series of 16S samples from a longitudinal study performed by Caporaso et al. [2]. As test data, we provide a subset of samples from that study. The same 10 samples are provided in FastA and FastQ format to illustrate the two uses of the CFF pipeline (using raw FastQ and already quality-filtered FastA data). For a detailed description of the test data, see samples/testDataDescription.txt.
 
 ### Example 1
+
 Run these commands:
 
     cd samples
@@ -144,6 +145,7 @@ Example 1 is roughly equivalent to running the following commands (the differenc
 Note that in the first command (mergeSeqs.pl), we turn off abundance value parsing from the fasta deflines by supplying -p ''.  While the command will work without -p '', it will generate an error because the default value for -p expects to see abundance patterns on deflines in the form "size=#;".  If you never intend to save abundance values on your deflines, you may supply --save-as-default -p '' to save the setting.
 
 ### Example 2
+
 Run these commands:
 
     cd samples
