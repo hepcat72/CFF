@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.13';
+my $software_version_number = '1.14';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -41,7 +41,7 @@ my $version             = 0;
 my $overwrite           = 0;
 my $skip_existing       = 0;
 my $header              = 0;
-my $error_limit         = 50;
+my $error_limit         = 5;
 my $dry_run             = 0;
 my $use_as_default      = 0;
 my $defaults_dir        = (sglob('~/.rpst'))[0];
@@ -75,7 +75,7 @@ my $GetOptHash =
    'o|outfile-suffix|reals-suffix=s'
 			     => \$outfile_suffix,        #OPTIONAL [undef]
    'f|fakes-suffix=s'        => \$fakes_suffix,          #OPTIONAL [undef]
-   'v|heuristic-end-size=s'  => \$heuristic_str_size,    #OPTIONAL [11]
+   'v|heuristic-str-size=s'  => \$heuristic_str_size,    #OPTIONAL [11]
    'outdir=s'                => sub {push(@$outdirs,     #OPTIONAL
 				     [sglob($_[1])])},
    'q|seq-id-pattern=s'      => \$seq_id_pattern,        #OPTIONAL
@@ -992,15 +992,19 @@ sub markTime
     #Calculate the time since the time recorded at the time mark index
     my $time_since_mark = $time - $main::time_marks->[$mark_index];
 
+    debug("Times: [",join(',',@$main::time_marks),"].  Time since time mark ",
+	  "[$mark_index] is [$time - $main::time_marks->[$mark_index] = ",
+	  "$time_since_mark seconds].") if($DEBUG < -100);
+
     #Add the current time to the time marks array
     push(@$main::time_marks,$time)
       if(!defined($_[0]) || scalar(@$main::time_marks) == 0);
 
     #If called in array context, return time between all marks
-    if(wantarray)
+    if(!defined($_[0]) && wantarray)
       {
 	if(scalar(@$main::time_marks) > 1)
-	  {return(map {$main::time_marks->[$_ - 1] - $main::time_marks->[$_]}
+	  {return(map {$main::time_marks->[$_] - $main::time_marks->[$_ - 1]}
 		  (1..(scalar(@$main::time_marks) - 1)))}
 	else
 	  {return(())}
@@ -3282,8 +3286,8 @@ sub usage
      -j|--groupfile-      OPTIONAL [no output] Outfile extension appended to
         suffix                     -i to output indel grouping information.
                                    See --help.
-     -v|--heuristic-end-  OPTIONAL [11] Only look for indels between sequences
-        size                       whose last -v characters differ.
+     -v|--heuristic-str-  OPTIONAL [11] Only compare sequences that have this
+        size                       size subsequence in different places.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
@@ -3368,16 +3372,19 @@ end_print
                                    Creates directories specified, but not
                                    recursively.  Also see --extended --help for
                                    more advanced usage examples.
-     -v|--heuristic-end-  OPTIONAL [11] Only look for indels between sequences
-        size                       whose last -v characters differ.  This is
-                                   offered as a heuristic simply to speed up
+     -v|--heuristic-str-  OPTIONAL [11] Only compare sequences that have this
+        size                       size subsequence in different places.  This
+                                   is offered as a heuristic simply to speed up
                                    the script.  All sequences are assumed to
                                    be generally alignable at the start, but if
-                                   there is an indel, they will differ at the
-                                   end.  Note a reciprocal insertion/deletion
-                                   pair can be overlooked using this heuristic.
-                                   To compare all sequences, set this option to
-                                   0.
+                                   there is an indel and are otherwise similar,
+                                   a portion of their sequence will be
+                                   "shifted".  Only look for indels when a
+                                   subsequence of this size has a shifted
+                                   position.  Note a reciprocal insertion/
+                                   deletion within this size subsequence will
+                                   be overlooked using this heuristic.  To
+                                   compare all sequences, set this option to 0.
      -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
                                    expression to extract seq IDs from deflines.
                                    The ID pattern must be surrounded by
@@ -3448,7 +3455,7 @@ end_print
                                    command line call at the top of each
                                    outfile.
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
-     --error-type-limit   OPTIONAL [50] Limits each type of error/warning to
+     --error-type-limit   OPTIONAL [5] Limits each type of error/warning to
                                    this number of reports.  Intended to
                                    declutter output.  Note, a summary of
                                    warning/error types is printed when the
@@ -3768,8 +3775,13 @@ sub groupIndels
     my $group_num          = 1;
     my $indel_delim        = defined($indel_sep) ? $indel_sep : ',';
     my $write_ok           = 1;
+    my $num_recs           = scalar(@$ordered_recs);
 
     debug("Grouping indels.");
+
+    my $heur_hash = {};
+    $heur_hash = getComparisons($ordered_recs,$heuristic_str_size)
+      if($heuristic_str_size);
 
     if(defined($outfile))
       {
@@ -3780,38 +3792,16 @@ sub groupIndels
 	     if($header && !$dry_run)}
       }
 
-    for(my $i = 0;$i < (scalar(@$ordered_recs) - 1);$i++)
+    #For each record except the last one
+    for(my $i = 0;$i < ($num_recs - 1);$i++)
       {
+	#Skip if I've already grouped this record
 	next if(exists($already_added->{$i}));
 
 	my $rec1 = $ordered_recs->[$i];
 	my $def1 = $rec1->[0];
 	my $seq1 = $rec1->[1];
-
-	my $parent_id = '';
-	if($def1 =~ /\s*[\@\>]\s*(\S+)/)
-	  {
-	    my $default_id = $1;
-
-	    if($seq_id_pattern ne '' && $def1 =~ /$seq_id_pattern/)
-	      {$parent_id = $1}
-	    else
-	      {
-		$parent_id = $default_id;
-		warning("Unable to parse seqID from defline: [$def1] ",
-			"using pattern: [$seq_id_pattern].  Please ",
-			"either fix the defline or use a different ",
-			"pattern to extract the seqID value.  Using ",
-			"default ID: [$default_id].  Use \"-q ''\" to to ",
-			"avoid this warning.") if($seq_id_pattern ne '');
-	      }
-	  }
-	else
-	  {
-	    warning("Could not parse defline [$def1].  Using entire ",
-		    "defline.");
-	    $parent_id = $def1;
-	  }
+	my $id1  = getID($rec1);
 
 	verboseOverMe("Checking abundant sequence [$def1].");
 
@@ -3822,29 +3812,29 @@ sub groupIndels
 	else
 	  {push(@$groups,[$rec1])}
 
-	my $end1 = '';
-	if($heuristic_str_size)
-	  {$end1 = substr($seq1,-$heuristic_str_size)}
-
-	for(my $j = $i + 1;$j < scalar(@$ordered_recs);$j++)
+	#For each record after the current record of the outer loop
+	for(my $j = $i + 1;$j < $num_recs;$j++)
 	  {
+	    #Skip this sequence if it has already been grouped
 	    next if(exists($already_added->{$j}));
 
 	    my $rec2 = $ordered_recs->[$j];
 	    my $def2 = $rec2->[0];
 	    my $seq2 = $rec2->[1];
+	    my $id2  = getID($rec2);
 
 	    debug("Comparing $def1 & $def2.");
 
-	    my $end2 = '';
-	    if($heuristic_str_size)
-	      {$end2 = substr($seq2,-$heuristic_str_size)}
-
 	    if($heuristic_str_size == 0 ||
-	       ($heuristic_str_size &&
+	       (#The heuristic string size is invalid
 		(length($seq1) < $heuristic_str_size ||
 		 length($seq2) < $heuristic_str_size ||
-		 $end1 ne $end2)))
+		 (#Or the comparison is in the heuristic "heur_hash"
+		  $id1 lt $id2 ?
+		  exists($heur_hash->{$id1}) &&
+		  exists($heur_hash->{$id1}->{$id2}) :
+		  exists($heur_hash->{$id2}) &&
+		  exists($heur_hash->{$id2}->{$id1})))))
 	      {
 		#$indels is an array of strings describing each indel
 		my($numnontermindels,$numsubs,$indels) =
@@ -3870,17 +3860,18 @@ sub groupIndels
 		    #parent key (should have ABUND & ORDER keys)
 		    elsif(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH')
 		      {
-			$rec2->[2]->{PARENT} = $parent_id;
+			$rec2->[2]->{PARENT} = $id1;
 			$rec2->[2]->{INDELS} = $indels;
 		      }
 		    else
 		      {$rec2->[2] = {INDELS => $indels,
-				     PARENT => $parent_id}}
+				     PARENT => $id1}}
 		    push(@{$groups->[-1]},$rec2);
 		  }
 	      }
 	    else
-	      {debug("Skipping because $end1 eq $end2")}
+	      {debug("Skipping because there are no shifted hits between ",
+		     "[$id1] & [$id2].")}
 	  }
 
 	next if(!defined($outfile));
@@ -3890,7 +3881,10 @@ sub groupIndels
 	  {
 	    my $def = $rec->[0];
 	    my $id = '';
-	    if($def =~ /\s*[\@\>]\s*(\S+)/)
+	    if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
+	       ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ID}))
+	      {$id = $rec->[2]->{ID}}
+	    elsif($def =~ /\s*[\@\>]\s*(\S+)/)
 	      {
 		my $default_id = $1;
 
@@ -3931,6 +3925,43 @@ sub groupIndels
     closeOut(*GROUPFILE) if(defined($outfile) && $write_ok);
 
     return($groups);
+  }
+
+#Globals used: $seq_id_pattern
+sub getID
+  {
+    my $rec = $_[0];
+    my $id = '';
+    if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
+       ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ID}))
+      {$id = $rec->[2]->{ID}}
+    elsif($rec->[0] =~ /\s*[\@\>]\s*(\S+)/)
+      {
+	my $default_id = $1;
+
+	if($seq_id_pattern ne '' && $rec->[0] =~ /$seq_id_pattern/)
+	  {$id = $1}
+	else
+	  {
+	    $id = $default_id;
+	    warning("Unable to parse seqID from defline: [$rec->[0]] ",
+		    "using pattern: [$seq_id_pattern].  Please ",
+		    "either fix the defline or use a different ",
+		    "pattern to extract the seqID value.  Using ",
+		    "default ID: [$default_id].  Use \"-q ''\" to to ",
+		    "avoid this warning.") if($seq_id_pattern ne '');
+	  }
+	$rec->[2]->{ID} = $id;
+      }
+    else
+      {
+	warning("Could not parse defline [$rec->[0]].  Using entire ",
+		"defline.");
+	$id = $rec->[0];
+	$rec->[2]->{ID} = $id;
+      }
+
+    return($id);
   }
 
 #This sub will take a groups array (a 3D array: an array of group arrays
@@ -4121,7 +4152,9 @@ sub getCheckAllSeqRecs
 	  {warning("Sequence ID: [$id] found multiple times in input file: ",
 		   "[$input_file].")}
 
-	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt}]);
+	$seq_hash->{$id} = 1;
+
+	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt,ID=>$id}]);
       }
 
     closeIn(*INPUT);
@@ -4827,4 +4860,231 @@ sub getMuscleExe
       }
 
     return($exe);
+  }
+
+#Globals used: $seq_id_pattern
+sub getComparisons
+  {
+    my $recs             = $_[0];
+    my $str_size         = defined($_[1]) ? $_[1] : 11;
+    my $min_shifted_hits = defined($_[2]) ? $_[2] : 1;
+    my $min_direct_hits  = defined($_[3]) ? $_[3] : 0;
+
+    my $seq_size = 0;  #Assume all sequences are the same size
+    my $end_size = 0;
+    my $hash     = {}; #$hash->{seqseg}->{position}->{ID} = 1
+    my $hits     = {}; #$hits->{ID1}->{ID2}->{D,S} = $cnt (D=Direct,S=shifted)
+
+    verbose("Reducing calls to muscle by looking for at least ",
+	    "[$min_shifted_hits] shifted hits.");
+    debug("Starting heuristic at ",markTime(0)," seconds");
+
+    foreach my $rec (@$recs)
+      {
+	my $def = $rec->[0];
+	my $seq = $rec->[1];
+
+	#Assume all sequences are the same size, so only get length once
+	unless($seq_size)
+	  {
+	    $seq_size = length($seq);
+	    $end_size = $seq_size - $str_size;
+	  }
+
+	my $id = '';
+	if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
+	   ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ID}))
+	  {$id = $rec->[2]->{ID}}
+	elsif($def =~ /\s*[\@\>]\s*(\S+)/)
+	  {
+	    my $default_id = $1;
+
+	    if($seq_id_pattern ne '' && $def =~ /$seq_id_pattern/)
+	      {$id = $1}
+	    else
+	      {
+		$id = $default_id;
+		warning("Unable to parse seqID from defline: [$def] ",
+			"using pattern: [$seq_id_pattern].  Please ",
+			"either fix the defline or use a different ",
+			"pattern to extract the seqID value.  Using ",
+			"default ID: [$default_id].  Use \"-q ''\" to to ",
+			"avoid this warning.") if($seq_id_pattern ne '');
+	      }
+	  }
+	else
+	  {warning("Could not parse defline [$def].  Using entire defline.")}
+
+	#Create a hash of every $str_size substring / position / ID
+	for(my $position=0;$position < $end_size;$position++)
+	  {
+	    my $ukey = substr($seq,$position,$str_size);
+	    $hash->{$ukey}->{$position}->{$id} = 1;
+	  }
+      }
+
+    debug("Sub-sequence Hash constructed.  ",markTime()," seconds");
+
+    #Now let's flip & collapse that hash so that a series of ID keys are
+    #concatenated into a single key (position-groups delimited by colons) and
+    #its value is the subsequence - overwriting when groupings are the same.
+    #We will filter out any subsequence that only every occurs in 1 position.
+    #This means that all the IDs and positions where a subsequence occurs,
+    #becomes a key string like this: id1,id2,id3:(1)id4,id5,id6:... =
+    #TCGTAGCTTAG
+    my $collapse = {};
+    if($min_shifted_hits == 1 && $min_direct_hits == 0)
+      {
+	foreach my $key (keys(%$hash))
+	  {
+	    if(scalar(keys(%{$hash->{$key}}))  == 1)
+	      {
+		delete($hash->{$key});
+		next;
+	      }
+	    $collapse->{join(':',
+			     sort {$a cmp $b}
+			     map {my $p=$_;join(",",
+						sort {$a cmp $b}
+						keys(%{$hash->{$key}->{$p}}))}
+			     keys(%{$hash->{$key}}))} = $key;
+	  }
+
+	debug("Hash collapsed.  ",markTime()," seconds");
+      }
+
+    foreach my $key ($min_shifted_hits == 1 && $min_direct_hits == 0 ?
+		     keys(%$collapse) : keys(%$hash))
+      {
+	my $ukey = $min_shifted_hits == 1 && $min_direct_hits == 0 ?
+	  $collapse->{$key} : $key;
+	debug("UKEY:($ukey/$key):\n\t",
+	      join("\n\t",
+		   (map {join(",",keys(%{$hash->{$ukey}->{$_}}))}
+		    keys(%{$hash->{$ukey}})))) if($DEBUG < 0);
+
+	debug("Doing key: $ukey.  ",markTime(0)," seconds") if($DEBUG < 0);
+
+	#Grab the position keys sorted by ascending number of contained IDs (so
+	#that there's more potential for filtering IDs out when thershold has
+	#already been reached
+	my @group_keys = sort {scalar(keys(%{$hash->{$ukey}->{$a}})) <=>
+				 scalar(keys(%{$hash->{$ukey}->{$b}}))}
+	  keys(%{$hash->{$ukey}});
+	my $group_size = scalar(@group_keys);
+
+	for(my $i=0;$i<($group_size-1);$i++)
+	  {
+	    my $key1   = $group_keys[$i];
+	    my @group1 = keys(%{$hash->{$ukey}->{$key1}});
+
+	    if($group_size > 1 && $min_shifted_hits > 0)
+	      {
+		for(my $j = $i+1;$j<$group_size;$j++)
+		  {
+		    my $key2   = $group_keys[$j];
+		    my @group2 = keys(%{$hash->{$ukey}->{$key2}});
+		    foreach my $member1 (@group1)
+		      {
+			foreach my $member2 (#This removes members of group2
+					     #from consideration when we've
+					     #already idendified a pair
+					     grep {!($_ lt $member1 ?
+						     exists($hits->{$_}) &&
+						     exists($hits->{$_}
+							    ->{$member1}) &&
+						     exists($hits->{$_}
+							    ->{$member1}
+							    ->{S}) &&
+						     $hits->{$_}->{$member1}
+						     ->{S} >=
+						     $min_shifted_hits :
+						     exists($hits->{$member1})
+						     && exists($hits
+							       ->{$member1}
+							       ->{$_}) &&
+						     exists($hits
+							    ->{$member1}
+							    ->{$_}->{S}) &&
+						     $hits->{$member1}->{$_}
+						     ->{S} >=
+						     $min_shifted_hits)}
+					     @group2)
+			  {
+			    if($member1 lt $member2)
+			      {$hits->{$member1}->{$member2}->{S}++}
+			    elsif($member2 lt $member1)
+			      {$hits->{$member2}->{$member1}->{S}++}
+			    #Ignore when equal - happens when there's a repeat
+			  }
+		      }
+		  }
+	      }
+
+	    if($min_direct_hits)
+	      {
+		my $group1_size = scalar(@group1);
+		if($group1_size > 1)
+		  {
+		    for(my $k = 0;$k<($group1_size-1);$k++)
+		      {
+			my $member1 = $group1[$k];
+			for(my $l = $k+1;$l<$group1_size;$l++)
+			  {
+			    my $member2 = $group1[$l];
+			    if($member1 lt $member2)
+			      {$hits->{$member1}->{$member2}->{D}++}
+			    else
+			      {$hits->{$member2}->{$member1}->{D}++}
+			  }
+		      }
+		  }
+	      }
+	  }
+
+	if($min_direct_hits)
+	  {
+	    #Do the direct hits for the last group
+	    my $key1        = $group_keys[$group_size-1];
+	    my @group1      = keys(%{$hash->{$ukey}->{$key1}});
+	    my $group1_size = scalar(@group1);
+
+	    next if($group1_size <= 1);
+
+	    for(my $k = 0;$k<($group1_size-1);$k++)
+	      {
+		my $member1 = $group1[$k];
+		for(my $l = $k+1;$l<$group1_size;$l++)
+		  {
+		    my $member2 = $group1[$l];
+		    if($member1 lt $member2)
+		      {$hits->{$member1}->{$member2}->{D}++}
+		    elsif($member1 gt $member2)
+		      {$hits->{$member2}->{$member1}->{D}++}
+		  }
+	      }
+	  }
+      }
+
+    my $num_compares = 0;
+    foreach my $first (keys(%$hits))
+      {
+	foreach my $second (keys(%{$hits->{$first}}))
+	  {
+	    my $compare =
+	      (($min_direct_hits && exists($hits->{$first}->{$second}->{D}) &&
+		$hits->{$first}->{$second}->{D} >= $min_direct_hits) ||
+	       ($min_shifted_hits && exists($hits->{$first}->{$second}->{S}) &&
+		$hits->{$first}->{$second}->{S} >= $min_shifted_hits) ? 1 : 0);
+	    $num_compares += $compare;
+	    debug((exists($hits->{$first}->{$second}->{D}) ?
+		   $hits->{$first}->{$second}->{D} : '0'),"\t",
+		  (exists($hits->{$first}->{$second}->{S}) ?
+		   $hits->{$first}->{$second}->{S} : '0'),
+		  "\tCOMPARE: $first\t$second\t$compare\n") if($DEBUG < -1);
+	  }
+      }
+
+    debug("Time: ",scalar(markTime())," Num calls to muscle: $num_compares");
+    return($hits);
   }
