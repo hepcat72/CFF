@@ -35,7 +35,7 @@ echo
 
 mkdir $ANALDIR
 
-echo -n "mergeSeqs.pl     $FASTAS -f $LIB --outdir $ANALDIR/1_lib -o .lib -p ''"
+echo -n "mergeSeqs.pl     $FASTAS -f $LIB --outdir $ANALDIR/2_lib -o .lib -p ''"
 mergeSeqs.pl $FASTAS -f $LIB --outdir $ANALDIR/1_lib -o .lib -p '' --overwrite
 if ( $status ) then
  echo
