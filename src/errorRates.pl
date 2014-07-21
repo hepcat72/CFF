@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.21';
+my $software_version_number = '1.22';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -83,7 +83,7 @@ my $GetOptHash =
    'q|seq-id-pattern=s'      => \$seq_id_pattern,           #OPTIONAL [^\s*[>\@
                                                             #      ]\s*([^;]+)]
    'e|num-top-seqs=s'        => \$num_estimates,            #OPTIONAL [10]
-   'a|abundance-threshold=s' => \$size_threshold,           #OPTIONAL [10]
+   'a|minimum-abundance=s'   => \$size_threshold,           #OPTIONAL [10]
    's|significant-digits=s'  => \$sigdig,                   #OPTIONAL [3]
    'use-median!'             => \$do_median,                #OPTIONAL [On]
    'use-mean!'               => \$do_mean,                  #OPTIONAL [Off]
@@ -527,13 +527,13 @@ foreach my $set_num (0..$#$input_file_sets)
       {
 	if($num_at_size_thresh == 0)
 	  {
-	    error("No sequences were at or above the abundance threshold ",
+	    error("No sequences were at or above the minimum abundance ",
 		  "(-a) [$size_threshold].  Skipping file [$input_file].");
 	    next;
 	  }
 
 	verbose("Note, only [$num_at_size_thresh] sequences were above the ",
-		"abundance threshold (-a) [$size_threshold].");
+		"minimum abundance (-a) [$size_threshold].");
 	$estimate_max = $num_at_size_thresh - 1;
       }
 
@@ -3162,8 +3162,8 @@ sub usage
                                    -z is provided.  Be sure to supply the same
                                    value in both cases.  0 means use all
                                    sequences (defers to -a).
-     -a|--abundance-      OPTIONAL [10] The abundance threshold at or above
-        threshold                  which a mother sequence will be used in the
+     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
+        abundance                  which a mother sequence will be used in the
                                    generation of a Z-Score histogram (when -z
                                    is not provided) or the output of an error
                                    rates file (see -o) when -z is provided.  0
