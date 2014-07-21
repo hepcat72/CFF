@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.14';
+my $software_version_number = '2.3';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -28,6 +28,7 @@ use File::Glob ':glob';
 #This will allow us to track runtime warnings about undefined variables, etc.
 local $SIG{__WARN__} = sub {my $err = $_[0];chomp($err);
 			    warning("Runtime warning: [$err].")};
+$| = 1;
 
 #Declare & initialize variables.  Provide default values here.
 my($outfile_suffix, #These are not defined on purpose
@@ -45,16 +46,29 @@ my $error_limit         = 5;
 my $dry_run             = 0;
 my $use_as_default      = 0;
 my $defaults_dir        = (sglob('~/.rpst'))[0];
+my $filetype            = 'auto';
+my $muscle              = 'muscle';
+my $muscle_gaps         = 0;
 my $seq_id_pattern      = '^\s*[>\@]\s*([^;]+)';
+my $abundance_pattern   = 'size=(\d+);';
 my $indel_sep           = ',';
 my $parent_sep          = ':';
 my $value_subst_str     = '__VALUE_HERE__';
 my $append_delimiter    = "Indels=$value_subst_str;";
 my $heuristic_str_size  = 11;
-my $abundance_pattern   = 'size=(\d+);';
-my $filetype            = 'auto';
-my $muscle              = 'muscle';
-my $muscle_gaps         = 0;
+my $min_shifted_hits    = 1;
+my $mitigate_recips     = 0;
+my $roche454_mode       = 0;
+my($align_mode,$sum_abund);
+my $align_mode_454_def  = 'global';
+my $align_mode_def      = 'local';
+my $sum_abund_454_def   = 1;
+my $sum_abund_def       = 0;
+my $processes           = 0;
+my $min_abund           = 1;
+my $gigs_ram            = 0;
+my $max_bases_per_gig   = 200000; #For muscle - Increase at own risk
+my $max_bases_per_run   = 0;      #$max_bases_per_gig * $gigs_ram / $processes
 
 #These variables (in main) are used by the following subroutines:
 #verbose, error, warning, debug, getCommand, quit, and usage
@@ -75,21 +89,42 @@ my $GetOptHash =
    'o|outfile-suffix|reals-suffix=s'
 			     => \$outfile_suffix,        #OPTIONAL [undef]
    'f|fakes-suffix=s'        => \$fakes_suffix,          #OPTIONAL [undef]
-   'v|heuristic-str-size=s'  => \$heuristic_str_size,    #OPTIONAL [11]
+   't|filetype=s'            => \$filetype,              #OPTIONAL [auto]
+				                         #   (fasta,fastq,auto)
    'outdir=s'                => sub {push(@$outdirs,     #OPTIONAL
 				     [sglob($_[1])])},
+
+   #454 params
+   '454-mode!'               => \$roche454_mode,         #OPTIONAL [Off]
+   'align-mode=s'            => \$align_mode,            #OPTIONAL [454:global,
+				                         #     no-454:pairwise]
+   'sum-abundances!'         => \$sum_abund,             #OPTIONAL [454:on,
+				                         #     no-454:off]
+
+   #Advanced speed-params
+   'a|minimum-abundance=s'   => \$min_abund,             #OPTIONAL [10]
+   'v|heuristic-str-size=s'  => \$heuristic_str_size,    #OPTIONAL [11]
+   'heuristic-min-seeds=s'   => \$min_shifted_hits,      #OPTIONAL [1]
+   'heuristic-thorough!'     => \$mitigate_recips,       #OPTIONAL [Off]
+   'parallel-processes=i'    => \$processes,             #OPTIONAL [1/core]
+   'gigs-ram=i'              => \$gigs_ram,              #OPTIONAL [auto]
+   'bases-per-gig=i'         => \$max_bases_per_gig,     #OPTIONAL [200000]
+
+   #Parsing & joining params
    'q|seq-id-pattern=s'      => \$seq_id_pattern,        #OPTIONAL
                                                          #[^\s*[>\@]\s*([^;]+)]
    'p|abundance-pattern=s'   => \$abundance_pattern,     #OPTIONAL
                                                          #        [size=(\d+);]
    'd|append-delimiter=s'    => \$append_delimiter,      #OPTIONAL
 				                         # [Indels=_VAL_HERE_;]
-   't|filetype=s'            => \$filetype,              #OPTIONAL [auto]
-				                         #   (fasta,fastq,auto)
    'fakes-indel-separator=s' => \$indel_sep,             #OPTIONAL [,]
    'fakes-parent-separator=s'=> \$parent_sep,            #OPTIONAL [:]
+
+   #Muscle params
    'y|muscle-exe=s'          => \$muscle,                #OPTIONAL [muscle]
    'use-muscle-gaps!'        => \$muscle_gaps,           #OPTIONAL [Off]
+
+   #Generic params
    'overwrite'               => \$overwrite,             #OPTIONAL [Off]
    'skip-existing!'          => \$skip_existing,         #OPTIONAL [Off]
    'force'                   => \$force,                 #OPTIONAL [Off]
@@ -294,6 +329,86 @@ else
     quit(2);
   }
 
+if($processes <= 0)
+  {
+    if(checkParallelAbility())
+      {$processes = getNumCores()}
+    else
+      {$processes = 1}
+  }
+if($processes > 1)
+  {
+    unless(checkParallelAbility())
+      {
+	error('One or both of the required modules: [IO::Pipe::Producer, ',
+	      'IO::Select] is missing.  Unable to run in parallel mode.  ',
+	      'Please use `--parallel-processes 1` to proceed.');
+	quit(3);
+      }
+  }
+
+if($gigs_ram <= 0)
+  {$gigs_ram = getRamSize()}
+elsif($gigs_ram > getRamSize())
+  {
+    error("--gigs-ram [$gigs_ram] exceeds system limits: [",getRamSize(),
+	  "].  Use --force to over-ride.");
+    quit(4);
+  }
+
+if($gigs_ram < 1)
+  {
+    error("Invalid RAM size: [$gigs_ram] gigs.  Must have at least 1 gig of ",
+	  "ram.  Use --force to over-ride.");
+    quit(5);
+  }
+
+$max_bases_per_run = int($max_bases_per_gig * $gigs_ram / $processes);
+
+if($min_shifted_hits < 1)
+  {
+    error("Invalid value for --heuristic-min-seeds ($min_shifted_hits).  ",
+	  "Must be greater than 0.");
+    quit(6);
+  }
+
+if($roche454_mode)
+  {
+    if(!defined($align_mode))
+      {$align_mode = $align_mode_454_def}
+    if(!defined($sum_abund))
+      {$sum_abund = $sum_abund_454_def}
+  }
+else
+  {
+    if(!defined($align_mode))
+      {$align_mode = $align_mode_def}
+    if(!defined($sum_abund))
+      {$sum_abund = $sum_abund_def}
+  }
+
+if($align_mode =~ /^g/i)
+  {$align_mode = 'global'}
+elsif($align_mode =~ /^l/i)
+  {$align_mode = 'local'}
+elsif($align_mode =~ /^p/i)
+  {$align_mode = 'pairwise'}
+else
+  {
+    error("Invalid alignment mode: [$align_mode].  Must be 'global', ",
+	  "'local', or 'pairwise'.");
+    quit(7);
+  }
+
+if($max_bases_per_gig < 10000)
+  {
+    error("--bases-per-gig [$max_bases_per_gig] must be an integer greater ",
+	  "than of equal to 10000.");
+    quit(8);
+  }
+
+debug("PID: $$");
+
 #If output is going to STDOUT instead of output files with different extensions
 #or if STDOUT was redirected, output run info once
 verbose('[STDOUT] Opened for all output.') if(!defined($outfile_suffix));
@@ -318,7 +433,7 @@ foreach my $set_num (0..$#$input_file_sets)
     if(defined($fakes_suffix))
       {$fakes_outfile = $outfile_stub . $fakes_suffix}
 
-    my $seq_recs = getCheckAllSeqRecs($input_file);
+    my $seq_recs = getCheckAllSeqRecs($input_file,$min_abund);
 
     if(scalar(@$seq_recs) == 0)
       {
@@ -326,22 +441,31 @@ foreach my $set_num (0..$#$input_file_sets)
 	next;
       }
 
-    @$seq_recs = abundanceSort($seq_recs);
+    #Create a record hash to get records via their ID
+    my $rec_hash = {};
+    $rec_hash->{getID($_)} = $_ foreach(@$seq_recs);
 
-    my $groups = groupIndels($seq_recs,
-			     $heuristic_str_size,
-			     $group_outfile,
-			     $muscle_gaps);
+    #Get the sequence combinations likely to contain indels in a 2D hash
+    my $heur_hash = getComparisons($seq_recs,
+				   $heuristic_str_size,
+				   $min_shifted_hits,
+				   $mitigate_recips,
+				   0,
+				   $rec_hash);
 
-    filterIndels($groups,$reals_outfile,$fakes_outfile);
+    #Determine sequence groups differing from most abundant sequence by indels
+    my $families = getIndelFamilies($rec_hash,$heur_hash);
+
+    #Print family associations
+    printGroupFile($group_outfile,$families);
+
+    #Print the filtered sequences
+    filterIndels($families,$reals_outfile,$fakes_outfile);
   }
 
 verbose("[STDOUT] Output done.") if(!defined($outfile_suffix));
 
-#Report the number of errors, warnings, and debugs on STDERR
-printRunReport($verbose) if(!$quiet && ($verbose || $DEBUG ||
-					defined($main::error_number) ||
-					defined($main::warning_number)));
+quit(0);
 
 ##
 ## End Main
@@ -464,9 +588,6 @@ sub verbose
     else
       {$overwrite_flag = 0}
 
-#    #Ignore the overwrite flag if STDOUT will be mixed in
-#    $overwrite_flag = 0 if(isStandardOutputToTerminal());
-
     #Read in the message
     my $verbose_message = join('',grep {defined($_)} @_);
 
@@ -480,15 +601,7 @@ sub verbose
     #Determine the message length
     my($verbose_length);
     if($overwrite_flag)
-      {
-	$verbose_message =~ s/\r$//;
-	if(!$main::verbose_warning && $verbose_message =~ /\n|\t/)
-	  {
-	    warning('Hard returns and tabs cause overwrite mode to not work ',
-		    'properly.');
-	    $main::verbose_warning = 1;
-	  }
-      }
+      {$verbose_message =~ s/\r$//}
     else
       {chomp($verbose_message)}
 
@@ -503,7 +616,7 @@ sub verbose
       {
 	my $tmp_message = $verbose_message;
 	$tmp_message =~ s/.*\n//;
-	($verbose_length) = sort {length($b) <=> length($a)}
+	($verbose_length) = sort {$b <=> $a} map {length($_)}
 	  split(/\r/,$tmp_message);
       }
     #Otherwise, the verbose_length is the size of the string after the last \n
@@ -951,7 +1064,7 @@ sub debug
     #Reset the verbose states if verbose is true
     if($verbose)
       {
-	$main::last_verbose_size = 0;
+	$main::last_verbose_size  = 0;
 	$main::last_verbose_state = 0;
       }
 
@@ -999,16 +1112,6 @@ sub markTime
     #Add the current time to the time marks array
     push(@$main::time_marks,$time)
       if(!defined($_[0]) || scalar(@$main::time_marks) == 0);
-
-    #If called in array context, return time between all marks
-    if(!defined($_[0]) && wantarray)
-      {
-	if(scalar(@$main::time_marks) > 1)
-	  {return(map {$main::time_marks->[$_] - $main::time_marks->[$_ - 1]}
-		  (1..(scalar(@$main::time_marks) - 1)))}
-	else
-	  {return(())}
-      }
 
     #Return the time since the time recorded at the supplied time mark index
     return($time_since_mark);
@@ -1168,6 +1271,11 @@ sub quit
       }
 
     debug("Exit status: [$errno].");
+
+    #Report the number of errors, warnings, and debugs on STDERR
+    printRunReport($verbose) if(!$quiet && ($verbose || $DEBUG ||
+					    defined($main::error_number) ||
+					    defined($main::warning_number)));
 
     #Exit if there were no errors or we are not in force mode or (we are in
     #force mode and the error is -1 (meaning an overwrite situation))
@@ -3096,13 +3204,20 @@ rleach\@genomics.princeton.edu
 * WHAT IS THIS: This script takes a sequence file with abundance values on the
                 deflines and filters out sequences deemed to be "fake".  A fake
                 sequence in this case being a sequences differing from a more
-                abundant sequence only by indels.  This script uses a sequence
-                alignment tool called muscle to determine the existence of
-                indels and substitutions.
+                abundant sequence only by indels.  If -sum-abundances is
+                supplied, the abundance of the kept sequence is increased by
+                the abundance of its indel-only matches.
 
-                This script represents the last step of a 7 step process in
-                the package called 'cff' (cluster free filtering).  Please
-                refer to the README for general information about the package.
+                This script runs in 2 modes in the 'cff' (cluster free
+                filtering) pipeline (with and without the --454-mode flag).  In
+                454-mode, the script is intended to be used after mergeSeqs.pl
+                and before neighbors.pl.  When not run in 454-mode, the script
+                is intended to be used at the end of the CFF pipeline (step 7).
+                Please refer to the README for general information about the
+                cff package.
+
+                This script uses a sequence alignment tool called muscle to
+                determine the existence of indels and substitutions.
 
 * INPUT FORMAT: A Fasta or Fastq sequence file whose deflines contain abundance
                 values.  The default format for abundance values is "size=#;"
@@ -3124,8 +3239,9 @@ TACGTAGGTCCCGAGCGTTGTCCGGATTTATTGGGCGTAAAGCGAGCGCAGGCGGTTAGATAAGTCTGAAGTTAAAGGCT
                 Note, all other values on the deflines are ignored.
 
 * REALS FORMAT: Fasta format, the same as the INPUT FORMAT, only containing
-                sequences determined to be "real".  Also see HEADER FORMAT in
-                the --extended --help output.
+                sequences determined to be "real".  Abundances may be increased
+                if --454-mode (or --sum-abundances) is supplied.  Also see
+                HEADER FORMAT in the --extended --help output.
 
 * FAKES FORMAT: Fasta format, the same as the INPUT FORMAT, only containing
                 sequences determined to be "fake".  Additionally, a description
@@ -3286,12 +3402,12 @@ sub usage
      -j|--groupfile-      OPTIONAL [no output] Outfile extension appended to
         suffix                     -i to output indel grouping information.
                                    See --help.
-     -v|--heuristic-str-  OPTIONAL [11] Only compare sequences that have this
-        size                       size subsequence in different places.
+     --454-mode           OPTIONAL Adjust options for preprocessing sequencing
+                                   data containing "frequent" indel errors.
+     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
+        abundance                  which a sequence will be used.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
-     -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
-                                   type.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
      --skip-existing      OPTIONAL Skip existing output files.
@@ -3305,6 +3421,7 @@ sub usage
      --help               OPTIONAL Print info and format descriptions.
      --extended           OPTIONAL Print extended usage/help/version/header
                                    when supplied with corresponding the flags.
+
 Run with just --extended for advanced options & more details.
 end_print
 	  }
@@ -3321,6 +3438,10 @@ end_print
                                    --extended --help for input file format and
                                    more advanced usage examples.  *No flag
                                    required.
+     -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
+                                   type.  Using this instead of auto will make
+                                   file reading faster.  "auto" cannot be used
+                                   when redirecting a file in.
      -o|--outfile-suffix| OPTIONAL [stdout] Outfile extension appended to -i.
         --reals-suffix             Sequences which do not differ with other
                                    more abundant sequences by indels only will
@@ -3372,19 +3493,121 @@ end_print
                                    Creates directories specified, but not
                                    recursively.  Also see --extended --help for
                                    more advanced usage examples.
+     --454-mode           OPTIONAL [Off] Sets the the following default option
+                                   values: `--sum-abundances --align-mode
+                                   global` in order to prepare sequences
+                                   containing relatively frequent indel-errors
+                                   for the remainder of the CFF pipeline.  See
+                                   those options for further details.
+                                   Explicitly setting those options over-rides
+                                   this option.
+     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
+        abundance                  which a sequence will be used.  The larger
+                                   this number, the faster the computation and
+                                   the less accurate subsequent error estimates
+                                   will be.  When a low abundance sequence is
+                                   excluded, it will not be in any of the
+                                   output files.  0 or 1 means use all
+                                   sequences.
+     --sum-abundances|    OPTIONAL [Off,with --454-mode:On*] When filtering out
+     --no-sum-abundances           lesser abundant sequences differing from
+                                   more abundant sequences only by indels, add
+                                   the abundance of the lesser abundant
+                                   sequence to the more abundant sequence.
+                                   *The default mode is "off" unless
+                                   --454-mode is provided.
+     --align-mode         OPTIONAL [local,with --454-mode:global](global,local,
+                                   pairwise) Alignments are performed on select
+                                   sequence combinations to determine which
+                                   sequences differ only by indels.  This
+                                   option determines how many sequences will be
+                                   aligned together.  Pairwise is the most
+                                   accurate, but slow.  A pair is only aligned
+                                   if they have a "shifted hit" (determined by
+                                   -v).  Local alignment mode groups like-
+                                   sequences which are likely to have indels
+                                   (determined by -v) and an alignment is
+                                   performed for each group.  Local alignments
+                                   provide a considerable speed-increase with
+                                   only a rare possibility for inaccuracy.  A
+                                   global alignment is by far the fastest, but
+                                   will likely contain a handful of errors:
+                                   missing the optimal indel-only sequence
+                                   pairs or not filtering out sequences
+                                   differing only by indels.  Global alignments
+                                   will be segmented for a performance boost
+                                   when setting --parallel-processes to a value
+                                   greater than 1.  Segmentation is done using
+                                   the data structure created from -v.
+                                   Sequences bearing similarity to multiple
+                                   segmented groups are duplicated and aligned
+                                   to each group, so it is recommended to use
+                                   the default value for --parallel-processes,
+                                   as higher values can adversely affect
+                                   running time.  Note, global mode can produce
+                                   differing results for different values
+                                   supplied to --parallel-processes due to the
+                                   ambiguities of multiple sequence alignments.
+                                   A lesser abundant sequence will always list
+                                   indels as they related to the greatest
+                                   abundant sequence with which they differ by
+                                   only indels.
      -v|--heuristic-str-  OPTIONAL [11] Only compare sequences that have this
-        size                       size subsequence in different places.  This
-                                   is offered as a heuristic simply to speed up
-                                   the script.  All sequences are assumed to
-                                   be generally alignable at the start, but if
-                                   there is an indel and are otherwise similar,
-                                   a portion of their sequence will be
-                                   "shifted".  Only look for indels when a
-                                   subsequence of this size has a shifted
-                                   position.  Note a reciprocal insertion/
-                                   deletion within this size subsequence will
-                                   be overlooked using this heuristic.  To
-                                   compare all sequences, set this option to 0.
+        size                       size subsequence in different places (this
+                                   will be referred to as a "shifted hit").
+                                   This is offered as a heuristic simply to
+                                   speed up the script.  All sequences are
+                                   assumed to be generally alignable at the
+                                   start, but if there is an indel between 2
+                                   sequences, a portion of their sequence will
+                                   be "shifted" relative to one-another.  This
+                                   option, when non-zero, will cause the script
+                                   to only look for indels when a subsequence
+                                   of this size has a shifted hit.  If a
+                                   sequence has no shifted hits with any other
+                                   sequence, it will be assumed to either be
+                                   completely different or contain
+                                   substitutions (with or without indels).
+                                   Note that a reciprocal insertion/deletion
+                                   within this size subsequence will be
+                                   overlooked using this heuristic.  This
+                                   effect can be mitigated by supplying
+                                   --heuristic-thorough.  To compare all
+                                   sequences, set this option to 0.
+     --heuristic-min-     OPTIONAL [1] If -v is too slow and you want to simply
+       seeds                       run fast (with reduced sensitivity), you may
+                                   increase this value to require more
+                                   "shifted hits" between two sequences in
+                                   order to run a pair through muscle.  There
+                                   will be virtually no speed improvement if
+                                   used with --heuristic-thorough.  See -v.
+     --heuristic-thorough OPTIONAL In addition to the -v heuristic, this option
+                                   mitigates the possibility of missing an
+                                   equally sized mononucleotide insertion/
+                                   deletion combination within -v bases from
+                                   one another (which the -v heuristic would
+                                   miss).  Not recommended when indels are not
+                                   likely because it greatly increases running
+                                   time.  Consider using with --454-mode.
+     --bases-per-gig      OPTIONAL [200000] The maximum number of bases to be
+                                   aligned by muscle per gig of ram (see
+                                   --gigs-ram).  This script splits up
+                                   alignments based on the heuristic parameters
+                                   (aligning only sequences that share a
+                                   "shifted hit").  If the amount of ram per
+                                   process is too little for the size of the
+                                   alignment and there is enough total ram on
+                                   your machine, the script temporarily reduces
+                                   the number of concurrent alignments until
+                                   the largest ones are done.  Otherwise, it
+                                   breaks up the alignment into chunks and
+                                   merges them when done.
+     --gigs-ram           OPTIONAL [auto] An integer indicating the total
+                                   number of gigs of memory to use as a maximum
+                                   when deciding how many concurrent processes
+                                   to run (see --parallel-processes) and when
+                                   determining the maximum number of sequences
+                                   to align together (see --bases-per-gig).
      -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
                                    expression to extract seq IDs from deflines.
                                    The ID pattern must be surrounded by
@@ -3430,16 +3653,27 @@ end_print
                                    prepended string will be followed by this
                                    character and the indel descriptions
                                    delimited by the --fakes-indel-separator.
-     -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
-                                   type.  Using this instead of auto will make
-                                   file reading faster.  "auto" cannot be used
-                                   when redirecting a file in.
      -y|--muscle-exe      OPTIONAL [muscle] The command to use to call muscle.
      --use-muscle-gaps    OPTIONAL Use muscle's default context-dependent gap
                                    penalties instead of our default static gap
                                    penalties of `-gapopen -400 -gapextend -399`
                                    designed to target homopolymer indels (and
                                    treat the terminal gaps properly).
+     --parallel-processes OPTIONAL [1/core*] Specify the number of forked
+                                   processes to use to increase speed.  Each
+                                   process handles a set of muscle alignments.
+                                   *By default, this script will set this value
+                                   to the number of cores on your machine.
+                                   Even when set to 1, this script will always
+                                   perform & process alignments in a child
+                                   process.  This number is a maximum.  You can
+                                   run more processes than the available cores,
+                                   but note that you may hit some system
+                                   limitations.  The number of processes used
+                                   at any one time depends on whether there is
+                                   enough available memory.  See --gigs-ram and
+                                   --bases-per-gig for more details.  Must be
+                                   greater than 0.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
      --skip-existing      OPTIONAL Skip existing output files.
@@ -3489,17 +3723,30 @@ end_print
   }
 
 #Returns alignment in clustalw format of 2 very similar sequences using muscle
-#Uses global: $muscle
-sub getMuscleAlignment
+#Uses global: $muscle, $verbose
+sub getMuscleMultipleAlignment
   {
-    my $seq1       = $_[0];
-    my $seq2       = $_[1];
-    my $musclegaps = defined($_[2]) ? $_[2] : $muscle_gaps;
+    my $rec_hash   = $_[0];
+    my $musclegaps = defined($_[1]) ? $_[1] : $muscle_gaps;
+    my $afa_format = defined($_[2]) ? $_[2] : 0;
+    my @ids        = @_[3..$#_];
     my $muscle_exe = defined($muscle) && $muscle ne '' ? $muscle : 'muscle';
 
-    if(!defined($seq1) || !defined($seq2) || $seq1 eq '' || $seq2 eq '')
+    if(scalar(@ids) < 2)
       {
-	error("Empty sequence sent in.");
+	error("Not enough sequences sent in.");
+	return('');
+      }
+
+    my @seqs = map {exists($rec_hash->{$_}) &&
+		      scalar(@{$rec_hash->{$_}}) >= 2 &&
+			defined($rec_hash->{$_}->[1]) &&
+			  $rec_hash->{$_}->[1] ne '' ?
+			    $rec_hash->{$_}->[1] : undef} @ids;
+
+    if(scalar(grep {!defined($_)} @seqs))
+      {
+	error("The IDs sent in did not correspond to valid sequence records.");
 	return('');
       }
 
@@ -3507,21 +3754,26 @@ sub getMuscleAlignment
     use IO::Select;
 
     my $output = '';
-    my $errors = '';
     local *ALNOUT;
     local *ALNERR;
     my $stdout = \*ALNOUT;
     my $stderr = \*ALNERR;
 
     my $muscle_command = "$muscle_exe -in /dev/stdin -out /dev/stdout " .
-      "-maxiters 1 -diags -quiet -clw" .
-	($musclegaps ? '' : ' -gapopen -400 -gapextend -399');
+      '-maxiters 1 -diags' .
+	($verbose ? '' : ' -quiet') .
+	  ($afa_format ? '' : ' -clw') .
+	    ($musclegaps ? '' : ' -gapopen -400 -gapextend -399');
 
+    #Run the muscle command using open3, which will take input printed to ALNIN
+    #as standard inout and it will output the alignment to $stdout and status/
+    #errors to $stderr
     my $pid = open3(\*ALNIN, $stdout, $stderr, $muscle_command);
 
+    #open3 succeeded if we got a PID
     if($pid)
       {
-	my $fasta = ">1\n$seq1\n>2\n$seq2\n";
+	my $fasta = ">" . join("\n>",map {"$_\n$seqs[$_]"} (0..$#ids)) . "\n";
 
 	print ALNIN ($fasta);
 	close(ALNIN);
@@ -3530,13 +3782,30 @@ sub getMuscleAlignment
 	my $sel = new IO::Select;
 	$sel->add($stderr,$stdout);
 
+	my(@buffer);
+	my $cnt = 0;
+	my $max = scalar(@ids);
+	my $line_num = 0;
+	my $verbose_freq = 1000;
+
 	#While we have a file handle with output
 	while(my @fhs = $sel->can_read())
 	  {
 	    #For each file handle with output
 	    foreach my $fh (@fhs)
 	      {
-		my $line = <$fh>;
+		my $line;
+		if($fh eq $stderr)
+		  {
+		    #Doing this to get ongoing status of muscle
+		    local $/ = "\r";
+		    $line = <$fh>;
+		  }
+		else
+		  {
+		    local $/ = "\n";
+		    $line = <$fh>;
+		  }
 
 		#If we hit the end of the file, remove the handle & continue
 		unless(defined($line))
@@ -3546,15 +3815,97 @@ sub getMuscleAlignment
 		  }
 
 		#Put output in the correct variable based on the current handle
-		if($fh == $stdout)
-		  {$output .= $line}
-		elsif($fh == $stderr)
-		  {$errors .= $line}
+		if($fh eq $stdout)
+		  {
+		    $line_num++;
+		    if($afa_format)
+		      {
+			if($line =~ /^>(\d+)/)
+			  {
+			    my $tid = $1;
+			    if($tid <= $#ids)
+			      {
+				$line =~ s/^$tid/$ids[$tid]/;
+				$cnt++;
+			      }
+			    else
+			      {error("Could not parse muscle alignment line: ",
+				     "[$line].")}
+			  }
+			elsif($line !~ /^[A-Z]+$/)
+			  {error("Could not parse muscle alignment line: ",
+				 "[$line].")}
+			$output .= $line;
+		      }
+		    else
+		      {
+			if($line =~ /^(\d+)\s/)
+			  {
+			    my $tid = $1;
+			    if($tid <= $#ids)
+			      {
+				$line =~ s/^$tid/$ids[$tid]/;
+				$buffer[$tid] = $line;
+				$cnt++;
+				if($cnt == $max)
+				  {
+				    $output .= join('',@buffer);
+				    @buffer = ();
+				    $cnt = 0;
+				  }
+			      }
+			    else
+			      {
+				error("Could not parse muscle alignment ",
+				      "line: [$line].");
+				$output .= $line;
+			      }
+			  }
+			elsif($line =~ /^[ *]+$/)
+			  {
+			    if(scalar(@buffer))
+			      {error("Parse error: Match line encountered ",
+				     "without the buffer being flushed.")}
+			    $output .= $line;
+			  }
+			elsif($line !~ /^MUSCLE|^\s*$/)
+			  {
+			    error("Could not parse muscle alignment line: ",
+				  "[$line].");
+			    $output .= $line;
+			  }
+		      }
+		  }
+		elsif($fh eq $stderr)
+		  {
+		    if($line !~ /^MUSCLE\sv|drive5\.com|This\ssoftware|^\s*$|
+				 ^Please\scite|^stdin\s/x || $verbose > 2)
+		      {
+			$line =~ s/[\r\n]//g;
+			verbose('Aligning... ',$line);
+		      }
+		  }
 		else
-		  {return($output,
-			  $errors . ($errors ? '  ' : '') .
-			  "Unable to determine file handle")}
+		  {error("Unable to determine file handle.")}
 	      }
+	  }
+
+	if(!$afa_format)
+	  {
+	    if($cnt == $max)
+	      {$output .= join('',@buffer)}
+	    elsif(scalar(@buffer))
+	      {
+		my $bsize = scalar(grep {defined($_)} @buffer);
+		error("Buffer unfinished (contains $bsize of $max sequence ",
+		      "segments), but there's no alignment output left ",
+		      "to parse.  Importing unfinished buffer.");
+		$output .= join('',grep {defined($_)} @buffer);
+	      }
+	    elsif($output eq '')
+	      {error("Could not parse muscle alignment.")}
+	    elsif($cnt)
+	      {error("Muscle alignment parse error.")}
 	  }
 
 	close($stdout);
@@ -3566,163 +3917,341 @@ sub getMuscleAlignment
 	return('');
       }
 
-    if($errors)
-      {error("MUSCLE: $errors")}
+    debug("Waiting on muscle to finish up...");
 
-    waitpid($pid,0);
+    waitpid($pid,0) if($pid);
 
-    debug("Muscle alignment: $output");
+    debug("Muscle alignment done",($DEBUG > 2 ? ": $output" : '.'));
 
     return($output);
   }
 
-#Takes a string alignment in clustalw format and returns the number of non-
-#terminal indels, substitutions, and non-terminal gaps.  Non-terminal means gap
-#characters in either sequence at the 3' end of the alignment.
-#Assumes that the first sequence in the alignment is the original (more
-#abundant) and the second is the new (less abundant)
+#Takes a string alignment of 2 sequences in clustalw format and returns the
+#number of non-terminal indels, substitutions, and non-terminal gaps.  Non-
+#terminal means gap characters in either sequence at the 3' end of the
+#alignment.  All coords reported are relative to the second sequence.  If
+#argument 2 is non-zero, the sub will return unfinished values when it
+#encounters the first instance of a substitution
 sub clustalw2indelsSubs
   {
     my $alignment_str = $_[0];
+    my $stop_at_sub   = $_[1];
     my $hash          = {};
 
     if(!defined($alignment_str) || $alignment_str eq '')
       {
 	error("Empty alignment string sent in.");
-	return(undef,undef,undef);
+	return(undef,undef,[],[]);
       }
+
+    my $first_id  = '';
+    my $second_id = '';
 
     while($alignment_str =~ /([^\n]*\n?)/g)
       {
 	my $line = $1;
-	next if($line =~ /^\s*$/ || $line =~ /^\s*(MUSCLE|CLUSTALW)/);
+	next if($line =~ /^\s*$/ || $line =~ /^\s*(MUSCLE|CLUSTALW)/ ||
+	        $line =~ /^[ *]+$/);
 	chomp($line);
 
-	#Grab the ID and the sequence string.  The ID will be all of the first
-	#16 characters (including spaces), as is standard for clustalw version
-	#1.81 format
-	if($line =~ /(.{16})(.+)/)
-	  {$hash->{$1} .= $2}
+	#Grab the ID and the sequence string.
+	if($line =~ /(.*\s)(\S+)$/)
+	  {
+	    $hash->{$1} .= uc($2);
+	    if($first_id eq '')
+	      {$first_id = $1}
+	    elsif($1 ne $first_id && $second_id eq '')
+	      {$second_id = $1}
+	  }
       }
 
-    my $numdiffs         = 0; #Number of gaps & substitutions
-    my $numnontermindels = 0; #Number of contiguous gap chars in either seq
-    my $numgaps          = 0; #Number of gap characters
-    my $numtermgaps      = 0; #Number of terminal gap characters
-    my $numins           = 0;
-    my $numdels          = 0;
-    my $indels           = []; #Array of insertion & deletion descriptions
-    my $subs_hash        = {}; #Hash of positions of substitutions
-    my $gap_hash         = {};
-
-    #Take a look at the string that marks the matches with '*' characters and
-    #count the number of spaces indicating a gap or mismatch
-    while($hash->{"                "} =~ / /g)
+    if($second_id eq '')
       {
-	$subs_hash->{pos($hash->{"                "})} = '';
-	$numdiffs++;
+	error("clustalw output did not contain enough sequences ",
+	      "[$alignment_str].  First ID was [$first_id].");
+	return(undef,undef,[],[]);
       }
+
+    my $numnontermindels = 0; #Total number of strings of contiguous gap chars
+    my $indels           = []; #Array of insertion & deletion descriptions
+
+    debug("$first_id/$second_id before shortening:\n$hash->{$first_id}\n",
+	  $hash->{$second_id})
+      if($DEBUG > 4);
+
+    my $debug_message = '';
+    #Trim off terminal gaps
+    if($hash->{$first_id} =~ /(-+)$/)
+      {
+	my $gl = -length($1);
+	$debug_message = join('',"Shortened $first_id/$second_id alignment ",
+			      "by $gl for end-gaps in first sequence: ",
+			      "[$hash->{$first_id}].");
+	$hash->{$first_id}  = substr($hash->{$first_id} ,0,$gl);
+	$hash->{$second_id} = substr($hash->{$second_id},0,$gl);
+      }
+    elsif($hash->{$second_id} =~ /(-+)$/)
+      {
+	my $gl = -length($1);
+	$debug_message = join('',"Shortened $first_id/$second_id alignment ",
+			      "by $gl for end-gaps in second sequence: ",
+			      "[$hash->{$second_id}].");
+	$hash->{$first_id}  = substr($hash->{$first_id} ,0,$gl);
+	$hash->{$second_id} = substr($hash->{$second_id},0,$gl);
+      }
+
+    #Count the number of substitutions & record positions where it's a gap in
+    #both sequences
+    my $aln_len  = length($hash->{$first_id});
+    my $dbl_gaps = [];
+    my $gaps_in2 = [];
+    my $p2       = 0;
+    my $subs     = [];
+    my $numsubs  = 0;
+
+    foreach my $position (0..($aln_len - 1))
+      {
+	if($DEBUG && ($position + 1) > length($hash->{$first_id}))
+	  {
+	    error("String index [$position] is greater than the string ",
+		  "length: [recorded: $aln_len, actual: ",
+		  length($hash->{$first_id}),"]: [$hash->{$first_id}].");
+	    next;
+	  }
+
+	my $b1 = substr($hash->{$first_id} ,$position,1);
+	my $b2 = substr($hash->{$second_id},$position,1);
+	$p2++ if($b2 ne '-');
+	if($b1 eq '-' && $b2 eq '-')
+	  {push(@$dbl_gaps,$position)}
+	elsif($b2 eq '-')
+	  {push(@$gaps_in2,1)}
+	else
+	  {push(@$gaps_in2,0)}
+	next if($b1 eq $b2 || $b1 eq '-' || $b2 eq '-');
+	return(wantarray ?
+	       (0,1,'',"snp $p2$b1>$b2") :
+	       [0,1,'',"snp $p2$b1>$b2"]) if($stop_at_sub);
+	push(@$subs,"snp $p2$b1>$b2");
+	$numsubs++;
+      }
+
+    debug("Found $numsubs substitutions between $first_id/$second_id.")
+      if($DEBUG > 4);
+
+    #Remove dual-gap positions, then re-adjust the alignment length
+    foreach my $gp (reverse(@$dbl_gaps))
+      {
+	if($DEBUG && ($gp + 1) > length($hash->{$first_id}))
+	  {
+	    error("Gap string index [$gp] is greater than the string ",
+		  "length: [",length($hash->{$first_id}),
+		  "]: [$hash->{$first_id}].");
+	    next;
+	  }
+	substr($hash->{$first_id} ,$gp,1,'');
+	substr($hash->{$second_id},$gp,1,'');
+      }
+    $aln_len = length($hash->{$first_id});
+
+    debug("Shortened $first_id/$second_id alignment by ",scalar(@$dbl_gaps),
+	  ". New alignments:\n$hash->{$first_id}\n$hash->{$second_id}")
+      if($DEBUG > 4);
 
     #Now take a look at the sequences and count the gap characters and number
     #of contiguous sets of gap characters.
 
     #Gaps here are insertions (relative to sequence 1 as the original sequence)
-    while($hash->{"1               "} =~ /(-+)/g)
+    while($hash->{$first_id} =~ /(-+)/g)
       {
-	my $gaps  = $1;
-	$numgaps += length($gaps);
+	my $gaps = $1;
+	$numnontermindels++;
 
 	#Go through each position to remove from the subs_hash (so that it is
 	#only left with substitutions)
-	my $start = pos($hash->{"1               "}) - length($gaps);
-	my $stop  = pos($hash->{"1               "}) - 1;
-	foreach my $pos ($start..$stop)
-	  {delete($subs_hash->{$pos})}
+	my $start = pos($hash->{$first_id}) - length($gaps);
+	my $stop  = pos($hash->{$first_id}) - 1;
 
-	#If we're at the end of the sequence
-	if(length($') == 0)
-	  {$numtermgaps = length($gaps)}
-	else
-	  {
-	    $numnontermindels++;
+	#Record insertion value & position (relative to the real 2nd sequence)
+	my $coord = $start + 1 -
+	  scalar(grep {$_} @{$gaps_in2}[0..($start - 1)]);
+	my $nts   = substr($hash->{$second_id},
+			   $start,
+			   length($gaps));
 
-	    #Record the insertion position & value
-	    my $coord = pos($hash->{"1               "}) + 1;
-	    my $nts = substr($hash->{"2               "},
-			     $start,
-			     length($gaps));
+	my $hp = '';
+	if(isHomopolymer(($start == 0 ? '' : substr($hash->{$second_id},
+						    $start - 1,
+						    1)),
+			 $nts,
+			 ($stop + 1 == $aln_len ? '' :
+			  substr($hash->{$second_id},
+				 $stop + 1,
+				 1))))
+	  {$hp = 'homopolymer '}
 
-	    my $hp = '';
-	    if(isHomopolymer(substr($hash->{"2               "},
-				    $start - 1,
-				    1),
-			     $nts,
-			     substr($hash->{"2               "},
-				    $stop + 1,
-				    1)))
-	      {$hp = 'homopolymer '}
-
-	    push(@$indels,$hp . "ins $coord$nts");
-	  }
+	push(@$indels,$hp . "ins $coord$nts");
       }
 
+    my $num_gap_chars = 0;
     #Gaps here are deletions (relative to sequence 1 as the original sequence)
-    while($hash->{"2               "} =~ /(-+)/g)
+    while($hash->{$second_id} =~ /(-+)/g)
       {
-	my $gaps  = $1;
-	$numgaps += length($gaps);
+	my $gaps = $1;
+	$numnontermindels++;
 
 	#Go through each position to remove from the subs_hash (so that it is
 	#only left with substitutions)
-	my $start = pos($hash->{"2               "}) - length($gaps);
-	my $stop  = pos($hash->{"2               "}) - 1;
-	foreach my $pos ($start..$stop)
-	  {delete($subs_hash->{$pos})}
+	my $start = pos($hash->{$second_id}) - length($gaps);
+	my $stop  = pos($hash->{$second_id}) - 1;
 
-	#If we're at the end of the sequence
-	if(length($') == 0)
-	  {$numtermgaps = length($gaps)}
-	else
-	  {
-	    $numnontermindels++;
+	#Record the insertion position & value
+	my $coord = $start + 1 - $num_gap_chars;
+	my $nts = substr($hash->{$first_id},
+			 $start,
+			 length($gaps));
 
-	    #Record the insertion position & value
-	    my $coord = pos($hash->{"2               "}) + 1;
-	    my $nts = substr($hash->{"1               "},
-			     $start,
-			     length($gaps));
+	$num_gap_chars += length($gaps);
 
-	    my $hp = '';
-	    if(isHomopolymer(substr($hash->{"1               "},
-				    $start - 1,
-				    1),
-			     $nts,
-			     substr($hash->{"1               "},
-				    $stop + 1,
-				    1)))
-	      {$hp = 'homopolymer '}
+	my $hp = '';
+	if(isHomopolymer(($start == 0 ? '' : substr($hash->{$first_id},
+						    $start - 1,
+						    1)),
+			 $nts,
+			 ($stop + 1 == $aln_len ? '' :
+			  substr($hash->{$first_id},
+				 $stop + 1,
+				 1))))
+	  {$hp = 'homopolymer '}
 
-	    push(@$indels,$hp . "del $coord$nts");
-	  }
+	push(@$indels,$hp . "del $coord$nts");
       }
 
-    my $subs = [];
-
-    #Now grab the substitution values
-    foreach my $coord (keys(%$subs_hash))
-      {
-	my $orig_nt = substr($hash->{"1               "},$coord - 1,1);
-	my $new_nt  = substr($hash->{"2               "},$coord - 1,1);
-
-	push(@$subs,"snp $coord$orig_nt>$new_nt");
-      }
-
-    my $numsubs         = $numdiffs - $numgaps;    #Number of substitutions
-    my $numnontermgaps  = $numgaps - $numtermgaps; #Number of non-terminal gaps
+    debug("Returning diffs between $first_id/$second_id: $numnontermindels ",
+	  "indels & $numsubs subs.")
+      if($DEBUG > 4);
 
     return(wantarray ?
 	   ($numnontermindels,$numsubs,$indels,$subs) :
 	   [$numnontermindels,$numsubs,$indels,$subs]);
+  }
+
+#Globals used: $processes, $align_mode
+sub getIndelFamilies
+  {
+    my $rec_hash      = $_[0];
+    my $heur_hash     = $_[1];
+    my $aln_strs      = {};
+
+    my $split_sets    = divideGroupings($heur_hash,$rec_hash);
+    my $families      = [];
+    my $already_added = {};
+    my $firstd_size   = scalar(keys(%$heur_hash));
+    my $cnt1          = 0;
+
+    if($align_mode ne 'global' && $align_mode ne 'local' &&
+       $align_mode ne 'pairwise')
+      {
+	error("Invalid alignment mode: [$align_mode].");
+	return($families);
+      }
+    alignLoadHeurHash($processes,$rec_hash,$heur_hash,$split_sets,$align_mode);
+
+    verbose("Grouping into indel families.");
+
+    #For each first ID in order of descending abundance and ascending ID
+    foreach my $id1 (sort {$rec_hash->{$b}->[2]->{ABUND} <=>
+			     $rec_hash->{$a}->[2]->{ABUND} || $a cmp $b}
+		     keys(%$heur_hash))
+      {
+	$cnt1++;
+
+	next if(exists($already_added->{$id1}));
+
+	my $rec1         = $rec_hash->{$id1};
+	my $secondd_size = scalar(keys(%{$heur_hash->{$id1}}));
+
+	push(@$families,[$rec1]);
+	$already_added->{$id1} = 1;
+	debug("Putting ",getID($rec1)," in new group.")
+	  if($DEBUG > 4);
+
+	my $cnt2 = 0;
+	foreach my $id2 (sort {$rec_hash->{$b}->[2]->{ABUND} <=>
+				 $rec_hash->{$a}->[2]->{ABUND} || $a cmp $b}
+			 keys(%{$heur_hash->{$id1}}))
+	  {
+	    $cnt2++;
+
+	    next if(exists($already_added->{$id2}));
+
+	    my $rec2 = $rec_hash->{$id2};
+
+	    verboseOverMe("Comparing record $cnt1 of $firstd_size and $cnt2 ",
+			  "of $secondd_size [$id1 vs $id2].");
+
+	    if(exists($heur_hash->{$id1}) &&
+	       exists($heur_hash->{$id1}->{$id2}) &&
+	       defined($heur_hash->{$id1}->{$id2}) &&
+	       ref($heur_hash->{$id1}->{$id2}) eq 'ARRAY' &&
+	       scalar(@{$heur_hash->{$id1}->{$id2}}))
+	      {
+		my $tsize1 = getAbund($rec_hash->{$id1});
+		my $tsize2 = getAbund($rec_hash->{$id2});
+		verbose("$id1 (abund: $tsize1) & $id2 (abund: $tsize2) ",
+			"only differ by indels: [",
+			join(',',@{$heur_hash->{$id1}->{$id2}}),"].");
+
+		$already_added->{$id2} = 1;
+
+		if(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH' &&
+		   exists($rec2->[2]->{PARENT}))
+		  {
+		    #This must be a lesser abundant parent, so ignore
+		    verbose("Note, [$id1] & [$id2] share only indels, ",
+			    "but the lesser abundant [$id2] was already ",
+			    "linked with the more abundant parent [",
+			    $rec2->[2]->{PARENT},'].');
+		  }
+		else
+		  {
+		    $rec2->[2]->{PARENT} = $id1;
+		    $rec2->[2]->{INDELS} = $heur_hash->{$id1}->{$id2};
+		  }
+		
+		push(@{$families->[-1]},$rec2);
+	      }
+	    elsif(!exists($heur_hash->{$id1}) ||
+		  !exists($heur_hash->{$id1}->{$id2}))
+	      {
+		error("Did not find outer ID $id1 (abundance: ",
+		      getAbund($rec_hash->{$id1}),
+		      ") together with inner ID $id2 (abundance: ",
+		      getAbund($rec_hash->{$id2}),").  Skipping combo.");
+	      }
+	    elsif(defined($heur_hash->{$id1}->{$id2}))
+	      {
+		if(ref($heur_hash->{$id1}->{$id2}) eq 'ARRAY')
+		  {error("Unrecognized indel type: [",
+			 ref($heur_hash->{$id1}->{$id2}),"].")}
+		else
+		  {error("Empty indels array.")}
+	      }
+	    else
+	      {debug("Heuristic is skipping [$id1] & [$id2].")
+		 if($DEBUG < -2)}
+	  }
+      }
+
+    debug("Indel families:\n\t",
+	  join("\n\t",map {my $a=$_;join(',',map {getID($_)} @$a)}
+	       grep {scalar(@$_) > 1} @$families));
+
+    my @unadded = grep {!exists($already_added->{$_})} keys(%$rec_hash);
+    if(scalar(@unadded))
+      {push(@$families,map {[$rec_hash->{$_}]} @unadded)}
+
+    return($families);
   }
 
 #This sub returns true if the stretch of submitted nucleotides is the same and
@@ -3751,180 +4280,45 @@ sub isHomopolymer
     return(0);
   }
 
-#Assumes sequences are submitted in order of decreasing abundance and that the
-#sequences are all the same case (upper/lower).  Takes an array of 2 element
-#arrays containing a fasta defline and solid sequence (i.e. no hard returns or
-#spaces).  Returns an array of arrays of records grouped by whether or not they
-#differ only be indels.  A record is an array with a defline, a sequence, and a
-#hash with a key named "INDELS" and the value is an array of strings, each
-#describing an individual indel.  Lesser abundant sequences will always be
-#grouped with the most abundant sequence they happen to differ with by only
-#indels.  If two or more sequences of the same abundance differ with the same
-#lesser abundant sequence, the lesser abundant sequence will arbitrarily be
-#grouped with the first more abundant sequence encountered.  All sequences are
-#assumed to be the same length
-#Uses globals: dry_run, indel_sep
-sub groupIndels
+#Globals used: $indel_sep, $dry_run, $header
+sub printGroupFile
   {
-    my $ordered_recs       = $_[0];
-    my $heuristic_str_size = $_[1]; #0 = no heuristic
-    my $outfile            = $_[2];
-    my $muscle_gaps        = $_[3];
-    my $groups             = [];
-    my $already_added      = {};
-    my $group_num          = 1;
-    my $indel_delim        = defined($indel_sep) ? $indel_sep : ',';
-    my $write_ok           = 1;
-    my $num_recs           = scalar(@$ordered_recs);
+    my $outfile     = $_[0];
+    my $groups      = $_[1];
+    my $indel_delim = defined($indel_sep) ? $indel_sep : ',';
 
-    debug("Grouping indels.");
+    return(0) unless(defined($outfile));
 
-    my $heur_hash = {};
-    $heur_hash = getComparisons($ordered_recs,$heuristic_str_size)
-      if($heuristic_str_size);
+    if(!checkFile($outfile) || !openOut(*GROUPFILE,$outfile,0))
+      {return(1)}
+    else
+      {print GROUPFILE ("#ID\tGroupNum\tindelDescription(*=GroupParent)\n")
+	 if($header && !$dry_run)}
 
-    if(defined($outfile))
+    foreach my $group_num (0..(scalar(@$groups) - 1))
       {
-	if(!checkFile($outfile) || !openOut(*GROUPFILE,$outfile,0))
-	  {$write_ok = 0}
-	else
-	  {print GROUPFILE ("#ID\tGroupNum\tindelDescription(*=GroupSeed)\n")
-	     if($header && !$dry_run)}
-      }
-
-    #For each record except the last one
-    for(my $i = 0;$i < ($num_recs - 1);$i++)
-      {
-	#Skip if I've already grouped this record
-	next if(exists($already_added->{$i}));
-
-	my $rec1 = $ordered_recs->[$i];
-	my $def1 = $rec1->[0];
-	my $seq1 = $rec1->[1];
-	my $id1  = getID($rec1);
-
-	verboseOverMe("Checking abundant sequence [$def1].");
-
-	debug("Looking at abundant sequence [$def1].");
-
-	if($i == 0)
-	  {$groups = [[$rec1]]}
-	else
-	  {push(@$groups,[$rec1])}
-
-	#For each record after the current record of the outer loop
-	for(my $j = $i + 1;$j < $num_recs;$j++)
-	  {
-	    #Skip this sequence if it has already been grouped
-	    next if(exists($already_added->{$j}));
-
-	    my $rec2 = $ordered_recs->[$j];
-	    my $def2 = $rec2->[0];
-	    my $seq2 = $rec2->[1];
-	    my $id2  = getID($rec2);
-
-	    debug("Comparing $def1 & $def2.");
-
-	    if($heuristic_str_size == 0 ||
-	       (#The heuristic string size is invalid
-		(length($seq1) < $heuristic_str_size ||
-		 length($seq2) < $heuristic_str_size ||
-		 (#Or the comparison is in the heuristic "heur_hash"
-		  $id1 lt $id2 ?
-		  exists($heur_hash->{$id1}) &&
-		  exists($heur_hash->{$id1}->{$id2}) :
-		  exists($heur_hash->{$id2}) &&
-		  exists($heur_hash->{$id2}->{$id1})))))
-	      {
-		#$indels is an array of strings describing each indel
-		my($numnontermindels,$numsubs,$indels) =
-		  clustalw2indelsSubs(getMuscleAlignment($seq1,$seq2,
-							 $muscle_gaps));
-
-		debug("$def1 & $def2 have $numnontermindels indels and ",
-		      "$numsubs substitutions.");
-
-		if($numsubs == 0 && $numnontermindels)
-		  {
-		    $already_added->{$j} = 1;
-		    if(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH' &&
-		       exists($rec2->[2]->{PARENT}))
-		      {
-			#This must be a lesser abundant parent, so ignore
-			verbose("Note, [$def1] & [$def2] share only indels, ",
-				"but the lesser abundant [$def2] was already ",
-			        "linked with the more abundant parent [",
-				$rec2->[2]->{PARENT},'].');
-		      }
-		    #If this hash already exists but just doesn't have the
-		    #parent key (should have ABUND & ORDER keys)
-		    elsif(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH')
-		      {
-			$rec2->[2]->{PARENT} = $id1;
-			$rec2->[2]->{INDELS} = $indels;
-		      }
-		    else
-		      {$rec2->[2] = {INDELS => $indels,
-				     PARENT => $id1}}
-		    push(@{$groups->[-1]},$rec2);
-		  }
-	      }
-	    else
-	      {debug("Skipping because there are no shifted hits between ",
-		     "[$id1] & [$id2].")}
-	  }
-
-	next if(!defined($outfile));
-
+	my $parent_done = 0;
 	#Output to the group file
-	foreach my $rec (@{$groups->[-1]})
+	foreach my $rec (@{$groups->[$group_num]})
 	  {
-	    my $def = $rec->[0];
-	    my $id = '';
-	    if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
-	       ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ID}))
-	      {$id = $rec->[2]->{ID}}
-	    elsif($def =~ /\s*[\@\>]\s*(\S+)/)
-	      {
-		my $default_id = $1;
-
-		if($seq_id_pattern ne '' && $def =~ /$seq_id_pattern/)
-		  {$id = $1}
-		else
-		  {
-		    $id = $default_id;
-		    warning("Unable to parse seqID from defline: [$def] ",
-			    "using pattern: [$seq_id_pattern].  Please ",
-			    "either fix the defline or use a different ",
-			    "pattern to extract the seqID value.  Using ",
-			    "default ID: [$default_id].  Use \"-q ''\" to to ",
-			    "avoid this warning.") if($seq_id_pattern ne '');
-		  }
-	      }
-	    else
-	      {
-		warning("Could not parse defline [$def].  Using entire ",
-			"defline.");
-	      }
+	    my $id = getID($rec);
 
 	    my $indel_str = '*';
 	    if(scalar(@$rec) >= 3 && ref($rec->[2]) eq 'HASH' &&
 	       exists($rec->[2]->{INDELS}) &&
 	       ref($rec->[2]->{INDELS}) eq 'ARRAY')
 	      {$indel_str = join($indel_delim,@{$rec->[2]->{INDELS}})}
-	    elsif(scalar(@$rec) < 3)
+	    elsif(!$parent_done)
 	      {$indel_str = 'error'}
 
-	    print GROUPFILE ("$id\t$group_num\t$indel_str\n")
-	      if(!$dry_run && $write_ok);
+	    print GROUPFILE ("$id\t",($group_num + 1),"\t$indel_str\n")
+	      if(!$dry_run);
 	  }
-
-	$group_num++;
       }
 
-    closeOut(*GROUPFILE) if(defined($outfile) && $write_ok);
+    closeOut(*GROUPFILE);
 
-    return($groups);
+    return(0);
   }
 
 #Globals used: $seq_id_pattern
@@ -3932,6 +4326,13 @@ sub getID
   {
     my $rec = $_[0];
     my $id = '';
+
+    if(ref($rec) ne 'ARRAY')
+      {
+	error("First argument must be an array reference.");
+	return($id);
+      }
+
     if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
        ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ID}))
       {$id = $rec->[2]->{ID}}
@@ -3964,6 +4365,56 @@ sub getID
     return($id);
   }
 
+#Globals used: $seq_id_pattern
+sub getAbund
+  {
+    my $rec   = $_[0];
+    my $abund = 1;
+    if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
+       ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ABUND}))
+      {$abund = $rec->[2]->{ABUND}}
+    elsif($rec->[0] =~ /$abundance_pattern/)
+      {
+	my $matched_abund = $1;
+
+	if($matched_abund =~ /^\d+$/)
+	  {$abund = $matched_abund}
+	else
+	  {
+	    warning("Unable to parse abundance from defline: [$rec->[0]] ",
+		    "using pattern: [$abundance_pattern].  Please ",
+		    "either fix the defline or use a different ",
+		    "pattern to extract the abundance value.  Using ",
+		    "default abundance: [1].");
+	  }
+	$rec->[2]->{ABUND} = $abund;
+      }
+    else
+      {
+	warning("Could not parse defline [$rec->[0]].  Assuming abundance 1.");
+	$rec->[2]->{ABUND} = $abund;
+      }
+
+    return($abund);
+  }
+
+sub getSize
+  {
+    my $rec  = $_[0];
+    my $size = '';
+
+    if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
+       ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{SIZE}))
+      {$size = $rec->[2]->{SIZE}}
+    else
+      {
+	$size = length($rec->[1]);
+	$rec->[2]->{SIZE} = $size;
+      }
+
+    return($size);
+  }
+
 #This sub will take a groups array (a 3D array: an array of group arrays
 #containging modified fasta record arrays [containing a defline, sequence, and
 #optional array of indel descriptions]).  The first record in each group should
@@ -3975,10 +4426,10 @@ sub getID
 #assume that when choosing which file to print to.
 sub filterIndels
   {
-    my $groups        = $_[0];
-    my $realsfile     = $_[1];
-    my $fakesfile     = $_[2];
-    my $status      = 0;
+    my $groups    = $_[0];
+    my $realsfile = $_[1];
+    my $fakesfile = $_[2];
+    my $status    = 0;
 
     if(defined($realsfile))
       {
@@ -4008,7 +4459,18 @@ sub filterIndels
 	    next;
 	  }
 
-	print("$group->[0]->[0]\n$group->[0]->[1]\n") unless($dry_run);
+	unless($dry_run)
+	  {
+	    my $def = $group->[0]->[0];
+	    if($sum_abund && scalar(@$group) > 1)
+	      {
+		my $sum = 0;
+		$sum   += getAbund($_) foreach(@$group);
+		$def    = replaceAbund($def,$sum);
+	      }
+
+	    print("$def\n$group->[0]->[1]\n");
+	  }
 
 	if(defined($fakesfile))
 	  {
@@ -4080,12 +4542,13 @@ sub deflineAddendum
     return($delimiter);
   }
 
-#Uses globals: $seq_id_pattern
+#Uses globals: $seq_id_pattern, $abundance_pattern
 #Returns sequence records as an array of arrays and adds the original order
 #number to the end of each record in a hash keyed on "ORDER".
 sub getCheckAllSeqRecs
   {
     my $input_file = $_[0];
+    my $min_abund  = $_[1];
     my $seq_recs   = [];
     my $seq_hash   = {};
 
@@ -4152,9 +4615,28 @@ sub getCheckAllSeqRecs
 	  {warning("Sequence ID: [$id] found multiple times in input file: ",
 		   "[$input_file].")}
 
+	my $abund = 1;
+	if($def =~ /$abundance_pattern/)
+	  {
+	    my $matched_abund = $1;
+
+	    if($matched_abund =~ /^\d+$/)
+	      {$abund = $matched_abund}
+	    else
+	      {warning("Unable to parse abundance from defline: [$def] ",
+		       "using pattern: [$abundance_pattern].  Please ",
+		       "either fix the defline or use a different ",
+		       "pattern to extract the abundance value.  Using ",
+		       "default abundance: [$abund].")}
+	  }
+	else
+	  {warning("Could not parse defline [$def].  Assuming abundance 1.")}
+
 	$seq_hash->{$id} = 1;
 
-	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt,ID=>$id}]);
+	next if($abund < $min_abund);
+
+	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt,ID=>$id,ABUND=>$abund}]);
       }
 
     closeIn(*INPUT);
@@ -4164,43 +4646,9 @@ sub getCheckAllSeqRecs
 	   (wantarray ? (@$seq_recs) : $seq_recs));
   }
 
-#Uses globals: $abundance_pattern
-sub abundanceSort
-  {
-    my $seq_recs      = $_[0];
-    my $abundance_pat = $abundance_pattern; #global
-
-    return(@$seq_recs) if(!defined($abundance_pat) || $abundance_pat eq '');
-
-    foreach my $rec (@$seq_recs)
-      {
-	my $def  = $rec->[0];
-	my $seq  = $rec->[1];
-
-	if(scalar(@$rec) < 3 || ref($rec->[2]) ne 'HASH')
-	  {$rec->[2] = {}}
-
-	my $hash = $rec->[2]; #Contains original ORDER array and INDELS array
-
-	if($def =~ /$abundance_pat/)
-	  {$hash->{ABUND} = $1}
-	else
-	  {
-	    error("Unable to parse abundance from defline: [$def] using ",
-		  "pattern: [$abundance_pat].  Please either fix the defline ",
-		  "or use a different pattern to extract the abundance ",
-		  "value.  Using abundance 1.");
-	    $hash->{ABUND} = 1;
-	  }
-      }
-
-    return(sort {$b->[2]->{ABUND} <=> $a->[2]->{ABUND}} @$seq_recs);
-  }
-
 #Copied from DNAstiffness.pl on 2/12/2014 so as to be independent -Rob
 sub getNextFastaRec
   {
-#    my $self       = shift(@_);
     my $handle    = $_[0];      #File handle or file name
     my $no_format = $_[1];
 
@@ -4570,7 +5018,7 @@ sub formatSequence
   }
 
 #Merged the above getNextFastaRec subroutine with the code from convertSeq.pl
-#on 2/12/2014 - have not yet tested
+#on 2/12/2014
 sub getNextFastqRec
   {
     my $handle    = $_[0];      #File handle or file name
@@ -4732,7 +5180,7 @@ sub getNextSeqRec
 	  {
 	    error("`-t auto` cannot be used when the input file is supplied ",
 		  "on standard input.  Please supply the exact file type.");
-	    quit(3);
+	    quit(7);
 	  }
 
 	if(!-e $input_file || $input_file =~ / /)
@@ -4740,7 +5188,7 @@ sub getNextSeqRec
 	    error("`-t auto` cannot be used when the input file does not ",
 		  "exist or has a space in its name.  Please supply the ",
 		  "exact file type.");
-	    quit(4);
+	    quit(8);
 	  }
 
 	my $num_fastq_defs =
@@ -4862,68 +5310,85 @@ sub getMuscleExe
     return($exe);
   }
 
-#Globals used: $seq_id_pattern
+#This returns a 2D hash where the key pairs are sequence IDs of sequences to
+#compare because they might be a pair that differs only by indels.  The outer
+#key is an ID of a sequence that is more abundant than the sequence of the ID
+#in the inner key.  The value at the end of the hash is an internal value which
+#is changed by other subs - do not count on it.
 sub getComparisons
   {
     my $recs             = $_[0];
     my $str_size         = defined($_[1]) ? $_[1] : 11;
     my $min_shifted_hits = defined($_[2]) ? $_[2] : 1;
-    my $min_direct_hits  = defined($_[3]) ? $_[3] : 0;
+    my $mitigate_recips  = defined($_[3]) ? $_[3] : 1;
+    my $min_direct_hits  = defined($_[4]) ? $_[4] : 0; #DEPRECATED - DO NOT USE
+    my $rec_hash         = $_[5];
 
-    my $seq_size = 0;  #Assume all sequences are the same size
-    my $end_size = 0;
-    my $hash     = {}; #$hash->{seqseg}->{position}->{ID} = 1
-    my $hits     = {}; #$hits->{ID1}->{ID2}->{D,S} = $cnt (D=Direct,S=shifted)
+    my $hash = {}; #$hash->{seqseg}->{position}->{R,F}->{ID} = 1
+    my $hits = {}; #$hits->{ID1}->{ID2}->{D,S,R} = $cnt (D=Direct,
+                   #S=shifted,R=deletion w/ possible reciprocal insertion)
 
-    verbose("Reducing calls to muscle by looking for at least ",
-	    "[$min_shifted_hits] shifted hits.");
-    debug("Starting heuristic at ",markTime(0)," seconds");
-
-    foreach my $rec (@$recs)
+    if($str_size == 0)
       {
-	my $def = $rec->[0];
-	my $seq = $rec->[1];
-
-	#Assume all sequences are the same size, so only get length once
-	unless($seq_size)
+	for(my $i = 0;$i < (scalar(@$recs) - 1);$i++)
 	  {
-	    $seq_size = length($seq);
-	    $end_size = $seq_size - $str_size;
-	  }
-
-	my $id = '';
-	if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
-	   ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{ID}))
-	  {$id = $rec->[2]->{ID}}
-	elsif($def =~ /\s*[\@\>]\s*(\S+)/)
-	  {
-	    my $default_id = $1;
-
-	    if($seq_id_pattern ne '' && $def =~ /$seq_id_pattern/)
-	      {$id = $1}
-	    else
+	    my $id1 = getID($recs->[$i]);
+	    for(my $j = $i + 1;$j < scalar(@$recs);$j++)
 	      {
-		$id = $default_id;
-		warning("Unable to parse seqID from defline: [$def] ",
-			"using pattern: [$seq_id_pattern].  Please ",
-			"either fix the defline or use a different ",
-			"pattern to extract the seqID value.  Using ",
-			"default ID: [$default_id].  Use \"-q ''\" to to ",
-			"avoid this warning.") if($seq_id_pattern ne '');
+		my $id2 = getID($recs->[$j]);
+		my($first,$second) =
+		  sort {getAbund($rec_hash->{$b}) <=> getAbund($rec_hash->{$a})
+			  || $a cmp $b} ($id1,$id2);
+		$hits->{$first}->{$second} = 1;
 	      }
 	  }
-	else
-	  {warning("Could not parse defline [$def].  Using entire defline.")}
+
+	return($hits);
+      }
+
+    if($min_shifted_hits < 1)
+      {
+	error("Invalid minimum shifted hits: [$min_shifted_hits].");
+	quit(9);
+      }
+
+    verbose("Reducing comparisons by looking for at least ",
+	    "[$min_shifted_hits] shifted hits (see --heuristic-min-seeds)",
+	    ($mitigate_recips ?
+	     " & reciprocal single base insertions & deletions within " .
+	     "$str_size bases (see --heuristic-thorough)" : ''),".");
+    debug("Starting heuristic at ",markTime(0)," seconds");
+
+    #Create the subsequence hash
+    my $cnt = 0;
+    foreach my $rec (@$recs)
+      {
+	verboseOverMe("Hashing sequence ",++$cnt);
+	my $def      = $rec->[0];
+	my $seq      = $rec->[1];
+	my $id       = getID($rec);
+	my $seq_size = getSize($rec);
+	my $end_size = $seq_size - $str_size;
 
 	#Create a hash of every $str_size substring / position / ID
 	for(my $position=0;$position < $end_size;$position++)
 	  {
 	    my $ukey = substr($seq,$position,$str_size);
-	    $hash->{$ukey}->{$position}->{$id} = 1;
+
+	    #Add the real subsequence & position
+	    $hash->{$ukey}->{$position}->{R}->{$id} = 1;
+
+	    if($mitigate_recips && ($position + 1) < $end_size)
+	      {
+		my $nextbase = substr($seq,$position + $str_size,1);
+
+		#Add possible/detectable mononucleotide deletion possibilities
+		addFakes($hash,$position,$id,$ukey,$str_size,$nextbase);
+	      }
 	  }
       }
 
-    debug("Sub-sequence Hash constructed.  ",markTime()," seconds");
+    debug("Sub-sequence Hash constructed in ",markTime()," seconds");
 
     #Now let's flip & collapse that hash so that a series of ID keys are
     #concatenated into a single key (position-groups delimited by colons) and
@@ -4933,10 +5398,12 @@ sub getComparisons
     #becomes a key string like this: id1,id2,id3:(1)id4,id5,id6:... =
     #TCGTAGCTTAG
     my $collapse = {};
-    if($min_shifted_hits == 1 && $min_direct_hits == 0)
+    if($min_shifted_hits == 1 && !$min_direct_hits && !$mitigate_recips)
       {
+	$cnt = 0;
 	foreach my $key (keys(%$hash))
 	  {
+	    verboseOverMe("Collapsing hash sequence ",++$cnt);
 	    if(scalar(keys(%{$hash->{$key}}))  == 1)
 	      {
 		delete($hash->{$key});
@@ -4946,50 +5413,84 @@ sub getComparisons
 			     sort {$a cmp $b}
 			     map {my $p=$_;join(",",
 						sort {$a cmp $b}
-						keys(%{$hash->{$key}->{$p}}))}
+						keys(%{$hash->{$key}->{$p}
+							 ->{R}}))}
 			     keys(%{$hash->{$key}}))} = $key;
 	  }
 
-	debug("Hash collapsed.  ",markTime()," seconds");
+	debug("Hash collapsed in ",markTime()," seconds");
       }
 
-    foreach my $key ($min_shifted_hits == 1 && $min_direct_hits == 0 ?
-		     keys(%$collapse) : keys(%$hash))
+    my $total = scalar($min_shifted_hits == 1 && !$min_direct_hits &&
+		       !$mitigate_recips ? keys(%$collapse) : keys(%$hash));
+    my $num = 0;
+
+    foreach my $key ($min_shifted_hits == 1 && !$min_direct_hits &&
+		     !$mitigate_recips ? keys(%$collapse) : keys(%$hash))
       {
-	my $ukey = $min_shifted_hits == 1 && $min_direct_hits == 0 ?
-	  $collapse->{$key} : $key;
+	$num++;
+	verboseOverMe("Determining comparisons... ",int(100*$num/$total),
+		      '% done.');
+
+	my $ukey = $min_shifted_hits == 1 && !$min_direct_hits &&
+	  !$mitigate_recips ? $collapse->{$key} : $key;
 	debug("UKEY:($ukey/$key):\n\t",
 	      join("\n\t",
-		   (map {join(",",keys(%{$hash->{$ukey}->{$_}}))}
+		   (map {join(",",keys(%{$hash->{$ukey}->{$_}->{R}}))}
 		    keys(%{$hash->{$ukey}})))) if($DEBUG < 0);
 
-	debug("Doing key: $ukey.  ",markTime(0)," seconds") if($DEBUG < 0);
+	debug("Number of positions with real subsequences in [$ukey]: ",
+	      scalar(grep {exists($hash->{$ukey}->{$_}->{R})}
+		     keys(%{$hash->{$ukey}})))
+	  if($DEBUG < -2 && scalar(grep {exists($hash->{$ukey}->{$_}->{R})}
+				  keys(%{$hash->{$ukey}})));
+
+	#Skip this iteration if...
+	if(#There's fewer than 2 positions with real ukeys
+	   scalar(grep {exists($hash->{$ukey}->{$_}->{R})}
+		  keys(%{$hash->{$ukey}})) < 2 &&
+	   #And there are no positions with both real and fake ukeys
+	   scalar(grep {exists($_->{R}) && exists($_->{F})}
+		  values(%{$hash->{$ukey}})) == 0)
+	  {
+	    debug("Skipping") if($DEBUG < -2);
+	    next;
+	  }
 
 	#Grab the position keys sorted by ascending number of contained IDs (so
 	#that there's more potential for filtering IDs out when thershold has
 	#already been reached
-	my @group_keys = sort {scalar(keys(%{$hash->{$ukey}->{$a}})) <=>
-				 scalar(keys(%{$hash->{$ukey}->{$b}}))}
+	my @group_keys = sort {scalar(keys(%{$hash->{$ukey}->{$a}->{R}})) <=>
+				 scalar(keys(%{$hash->{$ukey}->{$b}->{R}}))}
 	  keys(%{$hash->{$ukey}});
 	my $group_size = scalar(@group_keys);
 
 	for(my $i=0;$i<($group_size-1);$i++)
 	  {
 	    my $key1   = $group_keys[$i];
-	    my @group1 = keys(%{$hash->{$ukey}->{$key1}});
+	    my @group1 = sort {$a cmp $b}
+	      map {keys(%{$hash->{$ukey}->{$key1}->{$_}})} grep {$_ eq "R"}
+		keys(%{$hash->{$ukey}->{$key1}});
 
-	    if($group_size > 1 && $min_shifted_hits > 0)
+	    if($group_size > 1 && $min_shifted_hits)
 	      {
 		for(my $j = $i+1;$j<$group_size;$j++)
 		  {
 		    my $key2   = $group_keys[$j];
-		    my @group2 = keys(%{$hash->{$ukey}->{$key2}});
+		    my @group2 = sort {$a cmp $b}
+		      map {keys(%{$hash->{$ukey}->{$key2}->{$_}})}
+			grep {$_ eq "R"} keys(%{$hash->{$ukey}->{$key2}});
 		    foreach my $member1 (@group1)
 		      {
+			my $size1 = getAbund($rec_hash->{$member1});
 			foreach my $member2 (#This removes members of group2
 					     #from consideration when we've
 					     #already idendified a pair
-					     grep {!($_ lt $member1 ?
+					     grep {my $size2 =
+						     getAbund($rec_hash->{$_});
+						   !($size2 > $size1 ||
+						     ($size2 == $size1 &&
+						      $_ lt $member1) ?
 						     exists($hits->{$_}) &&
 						     exists($hits->{$_}
 							    ->{$member1}) &&
@@ -5011,12 +5512,44 @@ sub getComparisons
 						     $min_shifted_hits)}
 					     @group2)
 			  {
-			    if($member1 lt $member2)
+			    my $size2 = getAbund($rec_hash->{$member2});
+			    if($size1 > $size2 ||
+			       ($size1 == $size2 && $member1 lt $member2))
 			      {$hits->{$member1}->{$member2}->{S}++}
-			    elsif($member2 lt $member1)
+			    elsif($size1 < $size2 ||
+				  ($size1 == $size2 && $member2 lt $member1))
 			      {$hits->{$member2}->{$member1}->{S}++}
 			    #Ignore when equal - happens when there's a repeat
 			  }
+		      }
+		  }
+	      }
+
+	    #Now we'll add mononucleotide deletions within $str_size nts
+	    if($mitigate_recips)
+	      {
+		my @real_ids = map {keys(%{$hash->{$ukey}->{$key1}->{$_}})}
+		  grep {$_ eq 'R'} keys(%{$hash->{$ukey}->{$key1}});
+		my @fake_ids = map {keys(%{$hash->{$ukey}->{$key1}->{$_}})}
+		  grep {$_ eq 'F'} keys(%{$hash->{$ukey}->{$key1}});
+		foreach my $rid (@real_ids)
+		  {
+		    foreach my $fid (@fake_ids)
+		      {
+			next if($rid eq $fid);
+			next unless(confirmRecipIndel($key1,
+						      $rid,
+						      $fid,
+						      $rec_hash,
+						      $str_size));
+			debug("FOUND DELETION BETWEEN REAL $rid AND FAKE ",
+			      "$fid AT POSITION $key1 WITH SEQUENCE $ukey")
+			  if($DEBUG > 3);
+			my($first,$second) =
+			  sort {getAbund($rec_hash->{$b}) <=>
+				  getAbund($rec_hash->{$a}) || $a cmp $b}
+			    ($rid,$fid);
+			$hits->{$first}->{$second}->{R}++;
 		      }
 		  }
 	      }
@@ -5029,10 +5562,13 @@ sub getComparisons
 		    for(my $k = 0;$k<($group1_size-1);$k++)
 		      {
 			my $member1 = $group1[$k];
+			my $size1 = getAbund($rec_hash->{$member1});
 			for(my $l = $k+1;$l<$group1_size;$l++)
 			  {
 			    my $member2 = $group1[$l];
-			    if($member1 lt $member2)
+			    my $size2   = getAbund($rec_hash->{$member2});
+			    if($size1 > $size2 ||
+			       ($size1 == $size2 && $member1 lt $member2))
 			      {$hits->{$member1}->{$member2}->{D}++}
 			    else
 			      {$hits->{$member2}->{$member1}->{D}++}
@@ -5042,11 +5578,42 @@ sub getComparisons
 	      }
 	  }
 
+	#Now we'll add mononucleotide deletions deletions within $str_size nts
+	if($mitigate_recips && scalar(@group_keys))
+	  {
+	    my $key1 = $group_keys[-1];
+
+	    my @real_ids = map {keys(%{$hash->{$ukey}->{$key1}->{$_}})}
+	      grep {$_ eq 'R'} keys(%{$hash->{$ukey}->{$key1}});
+	    my @fake_ids = map {keys(%{$hash->{$ukey}->{$key1}->{$_}})}
+	      grep {$_ eq 'F'} keys(%{$hash->{$ukey}->{$key1}});
+	    foreach my $rid (@real_ids)
+	      {
+		foreach my $fid (@fake_ids)
+		  {
+		    next if($rid eq $fid);
+		    next unless(confirmRecipIndel($key1,
+						  $rid,
+						  $fid,
+						  $rec_hash,
+						  $str_size));
+		    my($first,$second) = sort {getAbund($rec_hash->{$b}) <=>
+						 getAbund($rec_hash->{$a}) ||
+						   $a cmp $b} ($rid,$fid);
+		    debug("FOUND DELETION between REAL $rid AND FAKE $fid at ",
+			  "POSITION $key1 with SEQUENCE $ukey")
+		      if($DEBUG > 3);
+		    $hits->{$first}->{$second}->{R}++;
+		  }
+	      }
+	  }
+
+	#Now we'll count direct hits
 	if($min_direct_hits)
 	  {
 	    #Do the direct hits for the last group
 	    my $key1        = $group_keys[$group_size-1];
-	    my @group1      = keys(%{$hash->{$ukey}->{$key1}});
+	    my @group1      = keys(%{$hash->{$ukey}->{$key1}->{R}});
 	    my $group1_size = scalar(@group1);
 
 	    next if($group1_size <= 1);
@@ -5066,25 +5633,1026 @@ sub getComparisons
 	  }
       }
 
-    my $num_compares = 0;
-    foreach my $first (keys(%$hits))
+    debug("Time to compute comparisons: ",scalar(markTime()));
+
+    if($DEBUG)
       {
-	foreach my $second (keys(%{$hits->{$first}}))
+	my $num_compares = 0;
+	foreach my $first (keys(%$hits))
 	  {
-	    my $compare =
-	      (($min_direct_hits && exists($hits->{$first}->{$second}->{D}) &&
-		$hits->{$first}->{$second}->{D} >= $min_direct_hits) ||
-	       ($min_shifted_hits && exists($hits->{$first}->{$second}->{S}) &&
-		$hits->{$first}->{$second}->{S} >= $min_shifted_hits) ? 1 : 0);
-	    $num_compares += $compare;
-	    debug((exists($hits->{$first}->{$second}->{D}) ?
-		   $hits->{$first}->{$second}->{D} : '0'),"\t",
-		  (exists($hits->{$first}->{$second}->{S}) ?
-		   $hits->{$first}->{$second}->{S} : '0'),
-		  "\tCOMPARE: $first\t$second\t$compare\n") if($DEBUG < -1);
+	    foreach my $second (keys(%{$hits->{$first}}))
+	      {
+		my $compare =
+		  (($min_direct_hits &&
+		    exists($hits->{$first}->{$second}->{D}) &&
+		    $hits->{$first}->{$second}->{D} >= $min_direct_hits) ||
+		   ($min_shifted_hits &&
+		    exists($hits->{$first}->{$second}->{S}) &&
+		    $hits->{$first}->{$second}->{S} >= $min_shifted_hits) ||
+		   ($mitigate_recips &&
+		    exists($hits->{$first}->{$second}->{R})) ?
+		   1 : 0);
+		$num_compares += $compare;
+		if($DEBUG > 3)
+		  {
+		    debug('DIRECTS(',(exists($hits->{$first}->{$second}->{D}) ?
+				      $hits->{$first}->{$second}->{D} : '0'),
+			  ")\tSHIFTS(",
+			  (exists($hits->{$first}->{$second}->{S}) ?
+			   $hits->{$first}->{$second}->{S} : '0'),
+			  ")\t1DELS(",
+			  (exists($hits->{$first}->{$second}->{R}) ?
+			   $hits->{$first}->{$second}->{R} : '0'),
+			  ")\tCOMPARE: $first\t$second\t$compare\n");
+		  }
+	      }
+	  }
+
+	debug("Time to print comparison debug output: ",scalar(markTime()),
+	      " Num calls to muscle: $num_compares");
+      }
+
+    debug("Heuristic hash has [",scalar(keys(%$hits)),"] outer keys.");
+    verbose("Comparison reduction done.");
+
+    return($hits);
+  }
+
+#This subroutine creates all possible single-base deletion sequences except for
+#the first and last positions where it would abut a potential insertion.  We
+#are using this to catch only a reciprocal single base insertion/deletion
+#within the hash string size to mitigate this problem
+sub addFakes
+  {
+    my $hash = $_[0];
+    my $i    = $_[1];
+    my $id   = $_[2];
+    my $seq  = $_[3];
+    my $size = $_[4];
+    my $nb   = $_[5];
+
+    foreach my $dp (1..($size-1))
+      {
+	my $tseq = $seq;
+	next if(substr($tseq,$dp-1,1) ne substr($tseq,$dp,1) &&
+		substr($tseq,$dp+1,1) ne substr($tseq,$dp,1));
+	substr($tseq,$dp,1,'');
+	debug("DELETING POSITION $dp FROM $seq TO MAKE $tseq") if($DEBUG < -2);
+	$hash->{"$tseq$nb"}->{$i}->{F}->{$id} = 1
+	  unless($seq eq "$tseq$nb");
+      }
+  }
+
+sub sumSetBases
+  {
+    my $set       = $_[0];
+    my $rec_hash  = $_[1];
+    my $heur_hash = $_[2];
+    my $sum       = 0;
+    my $summed    = {};
+
+    foreach my $outer_key (@$set)
+      {
+	if(!exists($summed->{$outer_key}))
+	  {
+	    $sum += getSize($rec_hash->{$outer_key});
+	    $summed->{$outer_key} = 1;
+	  }
+	foreach my $inner_key (keys(%{$heur_hash->{$outer_key}}))
+	  {
+	    if(!exists($summed->{$inner_key}))
+	      {
+		$sum += getSize($rec_hash->{$inner_key});
+		$summed->{$inner_key} = 1;
+	      }
 	  }
       }
 
-    debug("Time: ",scalar(markTime())," Num calls to muscle: $num_compares");
-    return($hits);
+    return($sum);
   }
+
+#This subroutine forks off multiple child processes which run muscle as a
+#system call, parse the output, and print the results which this subroutine
+#gathers and compiles to alter the heuristic hash.
+sub alignLoadHeurHash
+  {
+    my $num_kids   = $_[0];
+    my $rec_hash   = $_[1];
+    my $heur_hash  = $_[2];
+    my $split_sets = $_[3];
+    my $align_mode = $_[4];
+
+    verbose("Determining indel matches using muscle.");
+
+    my $max_concurrent = $num_kids < scalar(@$split_sets) ?
+      $num_kids : scalar(@$split_sets);
+    my $cur_concurrent = 1;
+
+    use IO::Pipe::Producer;
+    my $obj = new IO::Pipe::Producer();
+
+    use IO::Select;
+    my $sel = new IO::Select;
+
+    my $set_base_sums = {};
+    foreach my $set (@$split_sets)
+      {$set_base_sums->{$set} = sumSetBases($set,$rec_hash,$heur_hash)}
+
+    @$split_sets = sort {$set_base_sums->{$b} <=> $set_base_sums->{$a}}
+      @$split_sets;
+
+    my $report_nums = [scalar(@$split_sets) > 10 ?
+		       ((map {scalar(@$_)} @{$split_sets}[0..8]),'...') :
+		       map {scalar(@$_)} @$split_sets];
+    verbose("Starting a max of $max_concurrent child processes, each to ",
+	    "perform [",join(',',@$report_nums),
+	    "] comparisons respectively.  If an alignment is particularly ",
+	    "large and there is not enough memory, the number of concurrent ",
+	    "processes may not reach the max.") if($verbose > 1);
+
+    #Keep track of the outer keys that are processed to issue status messages
+    my $outers_count = 0;
+    my $all_outers = 0;
+    $all_outers += scalar(@$_) foreach(@$split_sets);
+    my $status_str = '';
+    my $progress_str = 'Overall progress: [0%]';
+    my $child_status_str = '';
+
+    my $nprocs = {};
+    my $running_procs = 0;
+    my $running_jobs  = 0;
+    my @kids;
+    my $n = 0;
+    foreach my $key_group_i (0..$#{$split_sets})
+      {
+	#Get the next set of outer IDs
+	my $key_group = $split_sets->[$key_group_i];
+
+	#Get the number of bases to be aligned
+	my $bases = $set_base_sums->{$key_group};
+
+	#Determine how many cores will be used to process this size alignment
+	#(This is not based on cores actually, but rather on memory.  It's
+	#convenient however to count this by the number of cores instead of by
+	#memory units.)
+	my $cur_procs = int($bases / $max_bases_per_run);
+	#Round up
+	if($bases % $max_bases_per_run)
+	  {$cur_procs++}
+
+	#If there currently are not enough cores to take on this run
+	if(($running_procs + $cur_procs) > $num_kids &&
+	   !($running_procs == 0 && $cur_procs > $num_kids))
+	  {last}
+
+	#If the number of cores needed is more than we've got
+	if($cur_procs > $num_kids)
+	  {
+	    my @report_keys = scalar(@$key_group) > 10 ?
+	      (@{$key_group}[0..8],'...') : @$key_group;
+	    debug("Outer key sample in key group [$key_group_i]: ",
+		  "[@report_keys], which has alignment size [$bases] is ",
+		  "larger than what can be done in 1 go on this computer.");
+	  }
+
+	#Increment the runs by the number of cores this job needs
+	$running_procs += $cur_procs;
+	$running_jobs++;
+
+	$n++;
+
+	$status_str =
+	  join('',
+	       "On alignment [$n] of [",scalar(@$split_sets),'].',
+	       ($verbose > 2 ?
+		"  Running [$running_jobs] concurrently." : ''));
+	$child_status_str = 'Aligning...';
+	verboseOverMe("$status_str  $progress_str  $child_status_str");
+
+	debug("Starting child [$n].") if($DEBUG > 1);
+
+	my($stdout,$stderr) =
+	  $obj->getSubroutineProducer(\&alignPrintIndelPairs,
+				      $key_group,
+				      $heur_hash,
+				      $rec_hash,
+				      $align_mode,
+				      $cur_procs > $num_kids);
+
+	debug("Child [$n] started.") if($DEBUG > 1);
+
+	$nprocs->{$stdout} = $cur_procs;
+	$nprocs->{$stderr} = $cur_procs;
+	push(@kids,$stdout,$stderr);
+	$sel->add($stdout,$stderr);
+      }
+
+    my $seen = {};
+    my $onerr = 0;
+    while(my @fhs = $sel->can_read())
+      {
+	foreach my $fh (@fhs)
+	  {
+	    my $fhi  = (grep {$fh eq $kids[$_]} (0..$#kids))[0];
+	    if($fhi % 2)
+	      {$onerr = 1}
+	    else
+	      {$onerr = 0}
+	    if(eof($fh))
+	      {
+		debug('Standard ',($onerr ? 'Error' : 'Out'),
+		      ' of an alignment is done.  Closing it up.');
+
+		#Remove the expired file handle
+		$sel->remove($fh);
+		close($fh);
+
+		#Unless this is the ending of stderr, decrement the jobs
+		if(!$onerr)
+		  {
+		    $running_procs -= $nprocs->{$fh};
+		    $running_jobs--;
+		  }
+		else
+		  {next}
+
+		debug('Seeing if there are more jobs to run.');
+
+		#For each of the remaining key group indexes, start more jobs
+		foreach my $key_group_i ($n..$#{$split_sets})
+		  {
+		    #Get the next set of outer IDs
+		    my $key_group = $split_sets->[$key_group_i];
+
+		    #Get the number of bases to be aligned
+		    my $bases = $set_base_sums->{$key_group};
+
+		    #Determine how many cores will be used to process this size
+		    #alignment.  (This is not based on cores actually, but
+		    #rather on memory.  It's convenient however to count this
+		    #by the number of cores instead of by memory units.)
+		    my $cur_procs = int($bases / $max_bases_per_run);
+		    #Round up
+		    if($bases % $max_bases_per_run)
+		      {$cur_procs++}
+
+		    #If there currently are not enough cores 2 take on this run
+		    if(($running_procs + $cur_procs) > $num_kids &&
+		       !($running_procs == 0 && $cur_procs > $num_kids))
+		      {last}
+
+		    #If the number of cores needed is more than we've got
+		    if($cur_procs > $num_kids)
+		      {
+			my @report_keys = scalar(@$key_group) > 10 ?
+			  (@{$key_group}[0..8],'...') : @$key_group;
+			debug("Outer key sample in key group [$key_group_i]: ",
+			      "[@report_keys], which has alignment size ",
+			      "[$bases] is larger than what can be done in 1 ",
+			      "go on this computer.");
+		      }
+
+		    if($running_jobs >= $num_kids)
+		      {
+			error("Too many jobs running.");
+			debug("last if((running_procs + cur_procs) > ",
+			      "num_kids && !(running_procs == 0 && cur_procs ",
+			      "> num_kids)): if(($running_procs + ",
+			      "$cur_procs) > $num_kids && !($running_procs ",
+			      "== 0 && $cur_procs > $num_kids))");
+			last;
+		      }
+
+		    #Increment the runs by the number of cores this job needs
+		    $running_procs += $cur_procs;
+		    $running_jobs++;
+
+		    $n++;
+
+		    $status_str =
+		      join('',
+			   "On alignment [$n] of [",scalar(@$split_sets),'].',
+			   ($verbose > 2 ?
+			    "  Running [$running_jobs] concurrently." : ''),
+			   ($DEBUG > 2 ? "  Parsed: [$outers_count] out of " .
+			   "[$all_outers] alignments." : ''));
+		    verboseOverMe("$status_str  $progress_str  ",
+				  $child_status_str);
+
+		    my($stdout,$stderr) =
+		      $obj->getSubroutineProducer(\&alignPrintIndelPairs,
+						  $key_group,
+						  $heur_hash,
+						  $rec_hash,
+						  $align_mode,
+						  $cur_procs > $num_kids);
+
+		    $nprocs->{$stdout} = $cur_procs;
+		    $nprocs->{$stderr} = $cur_procs;
+		    push(@kids,$stdout,$stderr);
+		    $sel->add($stdout,$stderr);
+		  }
+
+		debug("I count [$running_jobs] running jobs.  There are [",
+		      $sel->count(),"] file handles being tracked by IO::",
+		      "Select, which should be twice the number of running ",
+		      "jobs (possibly plus 1).  There appear to be [",
+		      scalar(grep {defined(fileno($_))} @kids),
+		      "] open file handles according to fileno().")
+		  if($DEBUG > 5);
+
+		next;
+	      }
+	    my $line = <$fh>;
+	    chomp($line);
+	    if($onerr)
+	      {
+		my $childstr = 'CHILD' . int($fhi/2) . ':';
+		if($line =~ /^ERROR/)
+		  {
+		    error("$childstr$line");
+		    verboseOverMe("$status_str  $progress_str  ",
+				  $child_status_str);
+		  }
+		elsif($line =~ /^WARNING/)
+		  {
+		    warning("$childstr$line");
+		    verboseOverMe("$status_str  $progress_str  ",
+				  $child_status_str);
+		  }
+		elsif($line =~ /^DEBUG/)
+		  {
+		    debug("$childstr$line");
+		    verboseOverMe("$status_str  $progress_str  ",
+				  $child_status_str);
+		  }
+		else
+		  {
+		    $line =~ s/[\r\n]//g;
+		    $child_status_str = $line . '  ALIGNMENT(' . int($fhi/2) .
+		      ')';
+		    verboseOverMe("$status_str  $progress_str  ",
+				  $child_status_str);
+		  }
+	      }
+	    elsif($line =~ /^([^\t]*)\t([^\t]*)\t([^\t]*)$/)
+	      {
+		debug("READING: [$line]") if($DEBUG > 2);
+		my $first  = $1;
+		my $second = $2;
+		my $indels = $3;
+		unless(exists($seen->{$first}))
+		  {
+		    $outers_count++;
+		    $seen->{$first} = 1;
+		  }
+		if($indels eq '')
+		  {$heur_hash->{$first}->{$second} = undef}
+		else
+		  {$heur_hash->{$first}->{$second} = [split(/,/,$indels)]}
+	      }
+	    else
+	      {error("Internal parse error.")}
+	  }
+
+	$progress_str = "Overall progress: [" .
+	  (int(10000 * $outers_count / $all_outers)/100) . '%]';
+	verboseOverMe("$status_str  $progress_str  $child_status_str");
+      }
+
+    debug("End of child processes") if($DEBUG > 1);
+  }
+
+#This sub divides the outer keys of the heuristic hash into sets composed of a
+#max that can be run on one processor with an equal amount of memory.  Any
+#single outer key that is too big will be subsequently split elsewhere.  Right
+#now, it just puts the outer keys in arbitrary sets as it encounters them.  In
+#the future, it would be nice to direct them into intelligent groupings to
+#maximize overlap of inner keys
+#Globals used: $max_bases_per_run, $processes
+sub divideGroupings
+  {
+    my $heur_hash   = $_[0];
+    my $rec_hash    = $_[1];
+    my $base_thresh = $max_bases_per_run;
+
+    my $base_count = 0;
+    my @key_groups = ([]);
+    my $ids_seen   = {};
+    my $sizes      = [];
+    foreach my $key (keys(%$heur_hash))
+      {
+	#Count the number of new bases we are proposing to add
+	my $new_bases = 0;
+	if(!exists($ids_seen->{$key}))
+	  {
+	    $new_bases += getSize($rec_hash->{$key});
+	    $ids_seen->{$key} = 1;
+	  }
+	foreach my $inner_key (keys(%{$heur_hash->{$key}}))
+	  {
+	    if(!exists($ids_seen->{$inner_key}))
+	      {
+		$new_bases += getSize($rec_hash->{$inner_key});
+		$ids_seen->{$inner_key} = 1;
+	      }
+	  }
+
+	#If there is something in this set already and these new bases will put
+	#us over the threshold, create a new group
+	if($base_count && ($base_count + $new_bases) >= $base_thresh)
+	  {
+	    push(@key_groups,[]);
+	    if($base_count)
+	      {push(@$sizes,$base_count)}
+	    $base_count = 0;
+	    $ids_seen = {};
+	  }
+
+	$base_count += $new_bases;
+	push(@{$key_groups[-1]},$key);
+      }
+
+    push(@$sizes,$base_count);
+
+    my $report_sizes = [(scalar(@key_groups) > 10 ?
+			 ((map {scalar(@$_)} @key_groups[0..8]),'...') :
+			 map {scalar(@$_)} @key_groups)];
+    debug("Split outer-key heuristic sequences into [",scalar(@key_groups),
+	  "] sets of [",join(',',@$report_sizes),
+	  "] outer keys per alignment, running [$processes] at a time.");
+
+    return([@key_groups]);
+  }
+
+#For alignments that are too big for the amount of available memory, break up
+#the input data, align them separately, then stitch them back together using a
+#common sequence.  Assumes that all IDs are unique (1 outer ID joined with a
+#single series of inner IDs from the heur_hash).
+#Globals used: $gigs_ram, $max_bases_per_gig, $muscle_gaps
+sub splitStitchAlignAndHash
+  {
+    my $rec_hash = $_[0];
+    my $all_ids  = [@{$_[1]}];
+    my $bases = 0;
+    $bases += $_ foreach(map {getSize($rec_hash->{$_})} @$all_ids);
+    my $num_divisions = $bases / $max_bases_per_gig / $gigs_ram;
+    my $common_id = shift(@$all_ids);
+    my $div_size = int(scalar(@$all_ids) / $num_divisions);
+    my @alignment_strs = ();
+    for(my $i = 0;$i < $num_divisions;$i++)
+      {
+	my($subset);
+	if(($i + 1) == $num_divisions)
+	  {$subset = [@$all_ids]}
+	else
+	  {$subset = [splice(@$all_ids,0,$div_size)]}
+
+	push(@alignment_strs,getMuscleMultipleAlignment($rec_hash,
+							$muscle_gaps,
+							0,
+							$common_id,@$subset));
+      }
+
+    return(mergeMuscleAlignments($common_id,@alignment_strs));
+  }
+
+#This subroutine takes a series of muscle alignments, each with a common
+#sequence, and merges them into one alignment based on differences in the
+#common sequence alignment string.
+sub mergeMuscleAlignments
+  {
+    my $common_id = shift(@_);
+    my @alignment_strs = @_;
+
+    debug("Merging [",scalar(@alignment_strs),"] alignments.");
+
+    my $merged_hash = {};
+    my $cnt = 0;
+    foreach my $alignment_str (@alignment_strs)
+      {
+	my $cur_hash = hashAlignment($alignment_str);
+
+	#Temporarily edit the alignment strings to contain only sequence - no
+	#spaces or IDs.
+	foreach my $idkey (keys(%$cur_hash))
+	  {
+	    my $pat = quotemeta($idkey) . '[ \t]+';
+	    $cur_hash->{$idkey} =~ s/$pat//g;
+	    $cur_hash->{$idkey} =~ s/[^A-Za-z\-]+//g;
+	    $cur_hash->{$idkey} .= "\n";
+	  }
+
+	if(!exists($merged_hash->{$common_id}))
+	  {
+	    if($DEBUG > 1)
+	      {debug("ALIGNED$cnt: $_\t$cur_hash->{$_}")
+		 foreach(keys(%$cur_hash))}
+	    %$merged_hash = %$cur_hash;
+	  }
+	elsif($merged_hash->{$common_id} eq $cur_hash->{$common_id})
+	  {
+	    foreach my $key (keys(%$cur_hash))
+	      {
+		debug("ALIGNED$cnt: $key\t$cur_hash->{$key}") if($DEBUG > 1);
+		if(exists($merged_hash->{$key}))
+		  {
+		    if($merged_hash->{$key} ne $cur_hash->{$key})
+		      {warning("Separate alignments for [$key] differ.")}
+		  }
+		else
+		  {$merged_hash->{$key} = $cur_hash->{$key}}
+	      }
+	  }
+	else
+	  {
+	    #Find positions where the merged hash & cur_hash must have dashes
+	    #added
+	    my $gts = $merged_hash->{$common_id};
+	    my $cts = $cur_hash->{$common_id};
+	    $gts .= '-' while(length($gts) < length($cts));
+	    $cts .= '-' while(length($gts) > length($cts));
+	    my $end = length($gts);
+	    my $goffset = 0;
+	    my $coffset = 0;
+	    my $gadds = [];
+	    my $cadds = [];
+	    my $position = 0;
+	    do
+	      {
+		if(($position + $coffset) > ($end - 1))
+		  {
+		    error("String index out of bounds.");
+		    last;
+		  }
+
+		my $gb = substr($merged_hash->{$common_id},
+				$position+$goffset,1);
+		my $cb = substr($cur_hash->{$common_id},$position+$coffset,1);
+
+		if($gb ne $cb)
+		  {
+		    if($gb eq '-')
+		      {
+			push(@$cadds,$position+$coffset);
+			$coffset--;
+		      }
+		    elsif($cb eq '-')
+		      {
+			push(@$gadds,$position+$goffset);
+			$goffset--;
+		      }
+		    else
+		      {error("Alignment merge error between sequences: ",
+			     "[$gts] and [$cts] at position [$position] with ",
+			     "relative offsets: [$goffset] and [$coffset].")}
+		  }
+		$position++;
+	      } while(($position + $goffset) < $end);
+
+	    #Add gaps to the merged hash
+	    if(scalar(@$gadds))
+	      {foreach my $gid (keys(%$merged_hash))
+		 {foreach my $position (reverse(@$gadds))
+		    {substr($merged_hash->{$gid},$position,0,'-')}}}
+	    #Add gaps to the current hash
+	    if(scalar(@$cadds))
+	      {
+		foreach my $cid (keys(%$cur_hash))
+		  {
+		    foreach my $position (reverse(@$cadds))
+		      {
+			if(length($cur_hash->{$cid}) < $position)
+			  {
+			    error("Position [$position] is larger than ",
+				  "alignment string of ID: [$cid]: ",
+				  "[$cur_hash->{$cid}].");
+			    next;
+			  }
+			substr($cur_hash->{$cid},$position,0,'-');
+		      }
+		  }
+	      }
+
+	    #Merge the current and merged hashes
+	    foreach my $key (keys(%$cur_hash))
+	      {
+		debug("ALIGNED$cnt: $key\t$cur_hash->{$key}") if($DEBUG > 1);
+		if(exists($merged_hash->{$key}))
+		  {
+		    if($merged_hash->{$key} ne $cur_hash->{$key})
+		      {warning("Separate alignments for [$key] differ.")}
+		  }
+		else
+		  {$merged_hash->{$key} = $cur_hash->{$key}}
+	      }
+	  }
+	$cnt++;
+      }
+
+    #Now put the keys and spaces back in the hash
+    foreach my $idkey (keys(%$merged_hash))
+      {
+	debug("MERGED: $idkey\t$merged_hash->{$idkey}") if($DEBUG > 1);
+	$merged_hash->{$idkey} = "$idkey\t$merged_hash->{$idkey}";
+      }
+
+    return($merged_hash);
+  }
+
+#This subroutine runs as a separate child process.  It calls getMuscleMultiple-
+#Alignment (or splitStitchAlignAndHash - based on the split_mode flag [which is
+#true if the alignment is too big to run in one process]) which runs muscle in
+#a system call.  This subroutine catches that output and any status output on
+#stderr and prints all pairs (with indel info) on standard out and status
+#messages on standard error, which the parent process catches and processes.
+#Globals used: $muscle_gaps
+sub alignPrintIndelPairs
+  {
+    my $split_set  = $_[0];
+    my $heur_hash  = $_[1]; #This hash is altered in parent scope
+    my $rec_hash   = $_[2];
+    my $align_mode = $_[3];
+    my $split_mode = $_[4];
+    my $aln_strs   = {};
+
+    if($align_mode eq 'global')
+      {
+	my $line_num     = 0;
+	my $verbose_freq = 1000;
+
+	my $added = {};
+	my $all_ids = [grep {my $e = exists($added->{$_});$added->{$_}=1;!$e}
+		       map {$_,keys(%{$heur_hash->{$_}})} @$split_set];
+
+	debug("Running muscle alignment on [",scalar(@$split_set),
+	      "] outer-key sequences and their [",
+	      (scalar(@$all_ids) - scalar(@$split_set)),
+	      "] inner-key partners.") if($DEBUG > 4);
+
+	if($split_mode)
+	  {$aln_strs = splitStitchAlignAndHash($rec_hash,$all_ids)}
+	else
+	  {
+	    my $alignment_str = getMuscleMultipleAlignment($rec_hash,
+							   $muscle_gaps,
+							   0,
+							   @$all_ids);
+
+	    $aln_strs = hashAlignment($alignment_str);
+	  }
+      }
+
+    my $saved_handle = select();
+    select(STDOUT) unless($saved_handle eq *STDOUT);
+
+    #For each first ID in order of descending abundance and ascending ID
+    foreach my $id1 (@$split_set)
+      {
+	my $rec1 = $rec_hash->{$id1};
+
+	my $diff_hash = {};
+	my $alnstr    = '';
+	if($align_mode eq 'global' && !exists($aln_strs->{$id1}))
+	  {
+	    error("Outer ID [$id1] was not found in the alignment string ",
+		  "hash though it should have been there.  It is ",
+		  (scalar(grep {$_ eq $id1} @$split_set) ? '' : 'also not '),
+		  "in the split set.");
+	    next;
+	  }
+	elsif($align_mode eq 'local')
+	  {
+	    if($split_mode)
+	      {$aln_strs =
+		 splitStitchAlignAndHash($rec_hash,
+					 [$id1,
+					  sort {$rec_hash->{$b}->[2]->{ABUND}
+						  <=> $rec_hash->{$a}->[2]
+						    ->{ABUND} || $a cmp $b}
+					  keys(%{$heur_hash->{$id1}})])}
+	    else
+	      {
+		my $alignment_str =
+		  getMuscleMultipleAlignment($rec_hash,
+					     $muscle_gaps,
+					     0,
+					     ($id1,
+					      sort {$rec_hash->{$b}->[2]
+						      ->{ABUND}
+							<=> $rec_hash->{$a}
+							  ->[2]->{ABUND} ||
+							    $a cmp $b}
+					      keys(%{$heur_hash->{$id1}})));
+
+		$aln_strs = hashAlignment($alignment_str);
+	      }
+	  }
+
+	foreach my $id2 (keys(%{$heur_hash->{$id1}}))
+	  {
+	    my $rec2 = $rec_hash->{$id2};
+
+	    #$indels is an array of strings describing each indel
+	    my($numnontermindels,$numsubs,$indels) =
+	      ($align_mode eq 'local' || $align_mode eq 'global' ?
+	       clustalw2indelsSubs($aln_strs->{$id1} . $aln_strs->{$id2},1) :
+	       clustalw2indelsSubs(getMuscleAlignment($rec1->[1],
+						      $rec2->[1],
+						      $muscle_gaps)));
+
+	    if($numsubs == 0 && $numnontermindels)
+	      {
+		verbose("$id1 & $id2 have $numnontermindels indels and ",
+			"$numsubs substitutions.");
+		#$heur_hash->{$id1}->{$id2} = $indels;
+		print("$id1\t$id2\t",join(',',@$indels),"\n");
+	      }
+	    else
+	      {
+		#$heur_hash->{$id1}->{$id2} = undef;
+		print("$id1\t$id2\t\n");
+	      }
+	  }
+      }
+
+    select($saved_handle) unless($saved_handle eq *STDOUT);
+  }
+
+#This subroutine takes an alignment string and divides it by ID.  It uses the
+#ID as a key in a hash and the values are the raw alignment strings that were
+#extracted from the entire alignment, formatting and all.
+sub hashAlignment
+  {
+    my $alignment_str = $_[0];
+    my $local_verbose = $_[1];
+    my $aln_strs      = {};
+    my $line_num      = 0;
+    my $verbose_freq  = 1000;
+
+    verbose("Parsing muscle alignment.") if($local_verbose);
+
+    while($alignment_str =~ /([^\n]*\n?)/g)
+      {
+	my $line = $1;
+
+	$line_num++;
+	verboseOverMe("Reading line $line_num.")
+	  if($local_verbose && $line_num % $verbose_freq == 0);
+
+	next if($line =~ /^\s*$/ || $line =~ /^\s*(MUSCLE|CLUSTALW)/ ||
+		$line =~ /^[ *]+$/);
+
+	#Grab the ID and the sequence string
+	if($line =~ /^(.*\S)\s+\S+$/)
+	  {$aln_strs->{$1} .= $line}
+	else
+	  {error("Could not parse alignment line: [$line].")}
+      }
+
+    return($aln_strs);
+  }
+
+#Determine the number of cores on this machine.
+sub getNumCores
+  {
+    my $num_cores = 1;
+    unless(eval('use Sys::Info;1;') ||
+	   eval('use local::lib;use Sys::Info;1;'))
+      {
+	warning("Perl module [Sys::Info] not found.  Use --parallel-",
+		"processes to to use more than 1 core for this script.");
+	return($num_cores);
+      }
+    my $info   = Sys::Info->new;
+    my $cpu    = $info->device(CPU => ());
+    $num_cores = $cpu->count;
+    debug("Cores: [$num_cores].") if($DEBUG > 1);
+    return($num_cores);
+  }
+
+#Sees if the required modules are present in order to do alignments in parallel
+sub checkParallelAbility
+  {
+    unless(eval('use IO::Pipe::Producer;1;') ||
+	   eval('use local::lib;use IO::Pipe::Producer;1;'))
+      {
+	error('Perl Module [IO::Pipe::Producer] not found.');
+	return(0);
+      }
+    unless(eval('use IO::Select;1;') ||
+	   eval('use local::lib;use IO::Select;1;'))
+      {
+	error('Perl Module [IO::Select] not found.');
+	return(0);
+      }
+    return(1);
+  }
+
+#Determine the amount of ram on this machine in gigabytes (integer) - rounds up
+sub getRamSize
+  {
+    my $gigs_ram = 1; #Default to 1
+    my($bytes);
+    if(exists($ENV{OSTYPE}) && $ENV{OSTYPE} =~ /darwin/i)
+      {
+	$bytes = `sysctl -n hw.memsize`;
+	chomp($bytes);
+	if($bytes =~ /^\d+$/ && $bytes)
+	  {
+	    $gigs_ram = int($bytes / 1073741824); #$bytes / 1024 / 1024 / 1024
+	    verbose("RAM: [$gigs_ram] Gigs.") if($verbose > 1);
+	    return($gigs_ram);
+	  }
+	else
+	  {warning("Unable to parse [sysctl -n hw.memsize] output.  ",
+		   "Resorting to perl module [Sys::MemInfo], however as of ",
+		   "7/8/2014, it has a bug on macs that returns the wrong ",
+		   "amount of physical memory.  Consider using --gigs-ram to ",
+		   "run more efficiently.")}
+      }
+
+    unless(eval('use Sys::MemInfo qw(totalmem);1;') ||
+	   eval('use local::lib;use Sys::MemInfo qw(totalmem);1;'))
+      {
+	error("Perl Module [Sys::MemInfo] not found.  Defaulting to ",
+	      "[$gigs_ram] gigs.");
+	return($gigs_ram);
+      }
+
+    $bytes = totalmem();
+    $gigs_ram = int($bytes / 1073741824);
+    if($bytes % 1073741824 > 0.5)
+      {$gigs_ram++}
+
+    $gigs_ram = 1 unless($gigs_ram);
+
+    verbose("RAM: [$gigs_ram] Gigs.") if($verbose > 1);
+
+    return($gigs_ram);
+  }
+
+#This subroutine is called when a deletion is found in the "fake sequence" -
+#one that was created when the sequences were parsed by deleting a base at
+#every position (except the ends) - and it then looks at the next substring
+#immediately following this substring in both the real and fake sequences.  It
+#divides that sequence in half and returns true in three cases:  1. the
+#sequences are too short to confirm.  2. The first halves match and the second
+#halves do not.  3. The first halves do not match and the second halves do.
+sub confirmRecipIndel
+  {
+    my $position = $_[0];
+    my $real_id  = $_[1];
+    my $fake_id  = $_[2];
+    my $rec_hash = $_[3];
+    my $str_size = $_[4];
+
+    my $real_rec = $rec_hash->{$real_id};
+    my $fake_rec = $rec_hash->{$fake_id};
+
+    return(1) if($position + $str_size*2 + 1 >= getSize($real_rec));
+
+    my $real_following = uc(substr($real_rec->[1],
+				   ($position + $str_size),
+				   $str_size));
+    my $fake_following = uc(substr($fake_rec->[1],
+				   ($position + $str_size + 1),
+				   $str_size));
+
+    my $real_first_half =
+      uc(substr($real_rec->[1],
+		($position + $str_size),
+		int($str_size/2)));                       #Assumes str_size > 1
+    my $fake_first_half =
+      uc(substr($fake_rec->[1],
+		($position + $str_size + 1),
+		int($str_size/2)));                       #Assumes str_size > 1
+
+    return(1) if($real_first_half eq $fake_first_half &&
+		 $real_following ne $fake_following);
+
+    my $real_second_half =
+      uc(substr($real_rec->[1],
+		($position + $str_size + int($str_size/2) + 1),
+		($str_size - int($str_size/2))));         #Assumes str_size > 1
+    my $fake_second_half =
+      uc(substr($fake_rec->[1],
+		($position + $str_size + int($str_size/2) + 1),
+		($str_size - int($str_size/2))));         #Assumes str_size > 1
+
+    return($real_second_half eq $fake_second_half &&
+	   $real_following ne $fake_following);
+  }
+
+#Returns alignment in clustalw format of 2 very similar sequences using muscle
+#Uses global: $muscle, $verbose
+sub getMuscleAlignment
+  {
+    my $seq1       = $_[0];
+    my $seq2       = $_[1];
+    my $musclegaps = defined($_[2]) ? $_[2] : $muscle_gaps;
+    my $muscle_exe = defined($muscle) && $muscle ne '' ? $muscle : 'muscle';
+
+    if(!defined($seq1) || !defined($seq2) || $seq1 eq '' || $seq2 eq '')
+      {
+	error("Empty sequence sent in.");
+	return('');
+      }
+
+    use IPC::Open3;
+    use IO::Select;
+
+    my $output = '';
+    local *ALNOUT;
+    local *ALNERR;
+    my $stdout = \*ALNOUT;
+    my $stderr = \*ALNERR;
+
+    my $muscle_command = "$muscle_exe -in /dev/stdin -out /dev/stdout " .
+      "-maxiters 1 -diags" . ($verbose ? '' : ' -quiet') . ' -clw' .
+	($musclegaps ? '' : ' -gapopen -400 -gapextend -399');
+
+    my $pid = open3(\*ALNIN, $stdout, $stderr, $muscle_command);
+
+    if($pid)
+      {
+	my $fasta = ">1\n$seq1\n>2\n$seq2\n";
+
+	print ALNIN ($fasta);
+	close(ALNIN);
+
+	#Use a Select opject to determine which handles are ready to be read
+	my $sel = new IO::Select;
+	$sel->add($stderr,$stdout);
+
+	#While we have a file handle with output
+	while(my @fhs = $sel->can_read())
+	  {
+	    #For each file handle with output
+	    foreach my $fh (@fhs)
+	      {
+		my $line = <$fh>;
+
+		#If we hit the end of the file, remove the handle & continue
+		unless(defined($line))
+		  {
+		    $sel->remove($fh);
+		    next;
+		  }
+
+		#Put output in the correct variable based on the current handle
+		if($fh == $stdout)
+		  {$output .= $line}
+		elsif($fh == $stderr)
+		  {verbose($line)}
+		else
+		  {error("Unable to determine file handle")}
+	      }
+	  }
+
+	close($stdout);
+	close($stderr);
+      }
+    else
+      {
+	error("open3() failed $!");
+	return('');
+      }
+
+    waitpid($pid,0);
+
+    verbose("Muscle alignment: $output") if($verbose > 2);
+
+    return($output);
+  }
+
+#This subroutine edits the abundance in the defline of the sequence records.
+sub replaceAbund
+  {
+    my $def = $_[0];
+    my $sum = $_[1];
+
+    if($def =~ /($abundance_pattern)/)
+      {
+	my $str   = $1;
+	my $abund = $2;
+	my $str_pat = quotemeta($str);
+	if(scalar(@{[$str =~ /$abund/g]}) > 1)
+	  {warning("Abundance pattern ambiguity.  The abundance value ",
+		   "[$abund] occurs multiple times in the matched abundance ",
+		   "string: [$str].  Replacing the last match with the sum ",
+		   "value.")}
+	my $new_str = $str;
+	$new_str =~ s/(.*)$abund/$1$sum/;
+	$def =~ s/$str_pat/$new_str/;
+      }
+    else
+      {
+	error("Unable to properly parse the abundance string from defline.  ",
+	      "Appending arbitrary string [size=$sum;] with sum.");
+	$def .= "size=$sum;";
+      }
+
+    return($def);
+  }
+
