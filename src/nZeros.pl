@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.15';
+my $software_version_number = '1.16';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -84,7 +84,7 @@ my $GetOptHash =
    'q|seq-id-pattern=s'       => \$seq_id_pattern,          #OPTIONAL [^\s*
                                                             #[>\@]\s*([^;]+)]
    'e|num-top-seqs=s'         => \$num_estimates,           #OPTIONAL [0]
-   'a|abundance-threshold=s'  => \$size_threshold,          #OPTIONAL [10]
+   'a|minimum-abundance=s'    => \$size_threshold,          #OPTIONAL [10]
    'use-reverse-spillover!'   => \$reverse_spillover,       #OPTIONAL [Off]
    'd|append-delimiter=s'     => \$append_delimiter,        #OPTIONAL
 				                            # [N0=_VAL_HERE_;]
@@ -3573,8 +3573,8 @@ sub usage
                                    data.
                                    * 0 means use all sequences (except those
                                    excluded by -a).
-     -a|--abundance-      OPTIONAL [10] The abundance threshold at or above
-        threshold                  which a sequence will be used in calculating
+     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
+        abundance                  which a sequence will be used in calculating
                                    N0.  If -n is not provided, this option and
                                    -e will limit the generation of the
                                    neighbor data.  The larger this number, the
@@ -4874,8 +4874,6 @@ sub getFirstNeighbors
 		     [$oary->[$i1]->[0],$1,$3,$2]);
 		push(@{$neighbors->{$oary->[$i1]->[0]}},
 		     [$oary->[$i2]->[0],$1,$2,$3]);
-#		push(@{$oary->[$i1]},$oary->[$i2]->[0],$result);
-#		push(@{$oary->[$i2]},$oary->[$i1]->[0],"$1:$3>$2");
 	      }
 	    elsif($result)
 	      {error("Unable to parse hamming distance 1 result: [$result].")}
@@ -4892,10 +4890,6 @@ sub getFirstNeighbors
 				 @{$neighbors->{$oary->[$i1]->[0]}} :
 				 '')),"\n");
       }
-
-#    print STDOUT (join("\t",(scalar(@{$oary->[-1]}) > 2 ?
-#			     @{$oary->[-1]}[0,2..$#{$oary->[-1]}] : $oary->[-1]->[0])),
-#		  "\n");
 
     verbose("First Neighbors done.");
 
