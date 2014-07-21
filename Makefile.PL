@@ -32,11 +32,13 @@ WriteMakefile
    (AUTHOR   => 'Robert W. Leach (rleach@genomics.princeton.edu)',
     ABSTRACT => 'Determine which sequences are real in a metagenomic sample.') : (),
    VERSION   => "2.0",
-   PREREQ_PM => { 'Getopt::Long' => 2.38,
-                  'File::Glob'   => 1.17,
-                  'IPC::Open3'   => 1.12,  #OPTIONAL - Only needed for filterIndels.pl
-                  'IO::Select'   => 1.21,  #OPTIONAL - Only needed for filterIndels.pl
-                  'File::Which'  => 1.09   #OPTIONAL - Uses `which` without it
+   PREREQ_PM => {'Getopt::Long'         => 2.38,
+                 'File::Glob'           => 1.17,
+                 'IPC::Open3'           => 1.12,   #OPTIONAL Only needed by filterIndels.pl
+                 'IO::Select'           => 1.21,   #OPTIONAL Only needed by filterIndels.pl
+                 'IO::Pipe::Producer'   => 1.9,    #OPTIONAL Only needed by filterIndels.pl
+                 'Sys::Info'            => 0.78,   #OPTIONAL Only needed by filterIndels.pl
+                 'File::Which'          => 1.09    #OPTIONAL Uses `which` without it
                 },
    EXE_FILES => [ map { "src/$_" } @scripts ]
   );
