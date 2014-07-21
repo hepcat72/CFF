@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.12';
+my $software_version_number = '1.14';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -64,7 +64,7 @@ my $GetOptHash =
 				     [sglob($_[1])])},
    't|filetype=s'            => \$filetype,              #OPTIONAL [auto]
 				                         #   (fasta,fastq,auto)
-   'a|abundance-threshold=s' => \$size_threshold,           #OPTIONAL [10]
+   'a|minimum-abundance=s'   => \$size_threshold,        #OPTIONAL [10]
    'p|abundance-pattern=s'   => \$abundance_pattern,     #OPTIONAL
                                                          #        [size=(\d+);]
    'q|seq-id-pattern=s'      => \$seq_id_pattern,        #OPTIONAL
@@ -2579,8 +2579,8 @@ sub usage
                                    smaller result of -a versus -e will be what
                                    determines the number of lines in the output
                                    neighbors file.
-     -a|--abundance-      OPTIONAL [10] The abundance threshold at or above
-        threshold                  which a sequence will be included as a
+     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
+        abundance                  which a sequence will be included as a
                                    mother sequence in the neighbor output.  An
                                    excluded sequence will still be reported as
                                    the neighbor of more abundant sequences.
