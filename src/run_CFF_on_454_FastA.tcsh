@@ -28,6 +28,7 @@ echo "RUNNING run_CFF_on_FastA.tcsh"
 echo "-----------------------------"
 echo "Start time:                  "`date`
 echo "Trim length:                 $TRIMLEN"
+echo "Minimum Abundance:           $MINABUND"
 echo "Z-score threshold:           $Z"
 echo "Magnitude over N0 Threshold: $MAG"
 echo "Nominations threshold:       $K"
