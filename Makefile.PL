@@ -36,7 +36,7 @@ WriteMakefile
                  'File::Glob'           => 1.17,
                  'IPC::Open3'           => 1.12,   #OPTIONAL Only needed by filterIndels.pl
                  'IO::Select'           => 1.21,   #OPTIONAL Only needed by filterIndels.pl
-                 'IO::Pipe::Producer'   => 1.9,    #OPTIONAL Only needed by filterIndels.pl
+                 'IO::Pipe::Producer'   => 2.0,    #OPTIONAL Only needed by filterIndels.pl
                  'Sys::Info'            => 0.78,   #OPTIONAL Only needed by filterIndels.pl
                  'File::Which'          => 1.09    #OPTIONAL Uses `which` without it
                 },
