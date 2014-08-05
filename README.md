@@ -9,12 +9,14 @@ The Cluster-Free Filtering package (CFF) is a fast denoiser designed for analyzi
 
 This version works best with Illumina data. The package will also work with 454 data, but is much slower because it requires sequence alignments. We have not tested CFF on data from other platforms (IonTorrent, etc.); if you have such data and are interested in trying CFF, please contact us (see below).
 
+The final sequence output of this pipeline can be converted to a format which can be used in qiime for further analysis.  See qiime.org for more information.
+
 This README file provides only basic installation/usage information. For a thorough introduction to the cluster-free filtering approach, including the motivation, algorithm, limitations and examples of application, see [1]. For detailed usage information of individual scripts, see built-in documentation.
 
 
 ## THE PIPELINE
 
-The pipeline is an 8-step process. It can be run with a single command (run_CFF_on_FastA.tcsh, run_CFF_on_FastQ.tcsh, or run_CFF_on_454_FastA.tcsh), but each script component is also available.
+The pipeline is an 8-step process, plus an optional conversion step to use the output with qiime, version 1.3.0 (see qiime.org). It can be run with a single command (run_CFF_on_FastA.tcsh, run_CFF_on_FastQ.tcsh, or run_CFF_on_454_FastA.tcsh), but each script component is also available.
 
     1. mergeSeqs.pl     truncates, dereplicates, and renames sequences in samples
     2. neighbors.pl     generates a list of Hamming distance 1 sequences
@@ -24,6 +26,7 @@ The pipeline is an 8-step process. It can be run with a single command (run_CFF_
     6. getCandidates.pl filters sequences by N/N0 threshold
     7. getReals.pl      filters chimeric candidates and generates overall abundance table
     8. filterIndels.pl  (optional) identifies sequences differing by indels
+    9. cff2qiime.pl     (optional) convert sequence output to qiime input files
 
 Note that when analyzing 454 data, filterIndels.pl must be run first. These scripts assume that each "real" sequence (those we seek to identify), whenever present in the sample, start from the same place in its sequence. In particular, CFF will work with any PCR-amplified tag sequencing dataset (such as 16S), but is NOT applicable to shotgun metagenomics where sequences need to be aligned to match each other.
 
