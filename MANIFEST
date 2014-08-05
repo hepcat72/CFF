@@ -25,6 +25,7 @@ samples/Caporaso_FASTQ/L6S29.fastq
 samples/run_example1.tcsh
 samples/run_example2.tcsh
 samples/testDataDescription.txt
+src/cff2qiime.pl
 src/errorRates.pl
 src/filterIndels.pl
 src/getCandidates.pl
