@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.3';
+my $software_version_number = '3.0';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -56,16 +56,21 @@ my $parent_sep          = ':';
 my $value_subst_str     = '__VALUE_HERE__';
 my $append_delimiter    = "Indels=$value_subst_str;";
 my $heuristic_str_size  = 11;
-my $min_shifted_hits    = 1;
-my $mitigate_recips     = 0;
-my $roche454_mode       = 0;
-my($align_mode,$sum_abund);
-my $align_mode_454_def  = 'global';
-my $align_mode_def      = 'local';
+my($homopolymers_only,$align_mode,$sum_abund);
 my $sum_abund_454_def   = 1;
 my $sum_abund_def       = 0;
-my $processes           = 0;
+my $align_mode_def      = 'local';
+my $align_mode_454_def  = 'global';
+my $align_mode_hpol_def = 'pairwise';
+my $roche454_mode       = 0;  #Sets these values if they are undefined:
+                              #sum_abunds = 1, homopolymers_only = 1,
+                              #align_mode = (homopolymers_only ?
+                              #              pairwise : global)
+my $min_shifted_hits    = 1;
+my $min_direct_hits     = 1;
+my $mitigate_recips     = 0;
 my $min_abund           = 1;
+my $processes           = 0;
 my $gigs_ram            = 0;
 my $max_bases_per_gig   = 200000; #For muscle - Increase at own risk
 my $max_bases_per_run   = 0;      #$max_bases_per_gig * $gigs_ram / $processes
@@ -102,9 +107,12 @@ my $GetOptHash =
 				                         #     no-454:off]
 
    #Advanced speed-params
+   'h|homopolymer-mode!'     => \$homopolymers_only,     #OPTIONAL [454:on,
+				                         #       no-454:off]
    'a|minimum-abundance=s'   => \$min_abund,             #OPTIONAL [10]
    'v|heuristic-str-size=s'  => \$heuristic_str_size,    #OPTIONAL [11]
-   'heuristic-min-seeds=s'   => \$min_shifted_hits,      #OPTIONAL [1]
+   'heuristic-min-shifts=s'  => \$min_shifted_hits,      #OPTIONAL [1]
+   'heuristic-min-directs=s' => \$min_direct_hits,       #OPTIONAL [1]
    'heuristic-thorough!'     => \$mitigate_recips,       #OPTIONAL [Off]
    'parallel-processes=i'    => \$processes,             #OPTIONAL [1/core]
    'gigs-ram=i'              => \$gigs_ram,              #OPTIONAL [auto]
@@ -367,21 +375,29 @@ $max_bases_per_run = int($max_bases_per_gig * $gigs_ram / $processes);
 
 if($min_shifted_hits < 1)
   {
-    error("Invalid value for --heuristic-min-seeds ($min_shifted_hits).  ",
+    error("Invalid value for --heuristic-min-directs ($min_shifted_hits).  ",
 	  "Must be greater than 0.");
     quit(6);
   }
 
 if($roche454_mode)
   {
-    if(!defined($align_mode))
+    if(!defined($homopolymers_only))
+      {$homopolymers_only = 1}
+    if(!defined($align_mode) && $homopolymers_only)
+      {$align_mode = $align_mode_hpol_def}
+    elsif(!defined($align_mode))
       {$align_mode = $align_mode_454_def}
     if(!defined($sum_abund))
       {$sum_abund = $sum_abund_454_def}
   }
 else
   {
-    if(!defined($align_mode))
+    if(!defined($homopolymers_only))
+      {$homopolymers_only = 0}
+    if(!defined($align_mode) && $homopolymers_only)
+      {$align_mode = $align_mode_hpol_def}
+    elsif(!defined($align_mode))
       {$align_mode = $align_mode_def}
     if(!defined($sum_abund))
       {$sum_abund = $sum_abund_def}
@@ -450,7 +466,7 @@ foreach my $set_num (0..$#$input_file_sets)
 				   $heuristic_str_size,
 				   $min_shifted_hits,
 				   $mitigate_recips,
-				   0,
+				   $min_direct_hits,
 				   $rec_hash);
 
     #Determine sequence groups differing from most abundant sequence by indels
@@ -2086,674 +2102,6 @@ sub getFileSets
     return($infile_sets_array,$outfile_stubs_array);
   }
 
-sub getFileSetsOLD
-  {
-    my($file_types_array,$outdir_array);
-    my $outfile_stub = 'STDIN';
-
-    #Allow user to submit multiple arrays.  If they do, assume 1. that they are
-    #2D arrays each containing a different input file type and 2. that the last
-    #one contains outdirs unless the global outfile_suffix is undefined
-    if(scalar(@_) > 1 && (defined($outfile_suffix) ||
-			  !defined($_[-1]) ||
-			  scalar(@{$_[-1]}) == 0))
-      {
-	debug("Assuming the last input array is outdirs.") if($DEBUG < -99);
-	debug("Copy Call 1") if($DEBUG < -99);
-	$outdir_array = copyArray(pop(@_));
-      }
-    elsif($DEBUG < -99)
-      {debug("Assuming the last input array is NOT outdirs.  Outfile suffix ",
-	     "is ",(defined($outfile_suffix) ? '' : 'NOT '),"defined, last ",
-	     "array submitted is ",(defined($_[-1]) ? '' : 'NOT '),
-	     "defined, and the last array sumitted is size ",
-	     (defined($_[-1]) ? scalar(@{$_[-1]}) : 'undef'),".")}
-
-    #Assumes that outdirs were popped off above
-    if(scalar(@_) > 1)
-      {
-	debug("Copy Call 2") if($DEBUG < -99);
-	$file_types_array = [copyArray(grep {scalar(@$_)} @_)];
-      }
-    else
-      {
-	debug("Copy Call 3") if($DEBUG < -99);
-	$file_types_array = copyArray($_[0]);
-      }
-
-    debug("Initial size of file types array: [",scalar(@$file_types_array),
-	  "].") if($DEBUG < -99);
-
-    #Error check the file_types array to make sure it's a 3D array of strings
-    if(ref($file_types_array) ne 'ARRAY')
-      {
-	#Allow them to submit scalars of everything
-	if(ref(\$file_types_array) eq 'SCALAR')
-	  {$file_types_array = [[[$file_types_array]]]}
-	else
-	  {
-	    error("Expected an array for the first argument, but got a [",
-		  ref($file_types_array),"].");
-	    quit(-9);
-	  }
-      }
-    elsif(scalar(grep {ref($_) ne 'ARRAY'} @$file_types_array))
-      {
-	my @errors = map {ref(\$_)} grep {ref($_) ne 'ARRAY'}
-	  @$file_types_array;
-	#Allow them to have submitted an array of scalars
-	if(scalar(@errors) == scalar(@$file_types_array) &&
-	   scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
-	  {$file_types_array = [[$file_types_array]]}
-	else
-	  {
-	    @errors = map {ref($_)} grep {ref($_) ne 'ARRAY'}
-	      @$file_types_array;
-	    error("Expected an array of arrays for the first argument, but ",
-		  "got an array of [",join(',',@errors),"].");
-	    quit(-10);
-	  }
-      }
-    elsif(scalar(grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
-		 @$file_types_array))
-      {
-	#Look for SCALARs
-	my @errors = map {my @x=@$_;map {ref(\$_)} @x}
-	  grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
-	    @$file_types_array;
-	#Allow them to have submitted an array of arrays of scalars
-	if(scalar(@errors) == scalar(map {@$_} @$file_types_array) &&
-	   scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
-	  {$file_types_array = [$file_types_array]}
-	else
-	  {
-	    #Reset the errors because I'm not looking for SCALARs anymore
-	    @errors = map {my @x=@$_;map {ref($_)} @x}
-	      grep {my @x=@$_;scalar(grep {ref($_) ne 'ARRAY'} @x)}
-		@$file_types_array;
-	    error("Expected an array of arrays of arrays for the first ",
-		  "argument, but got an array of arrays of [",
-		  join(',',@errors),"].");
-	    quit(-11);
-	  }
-      }
-    elsif(scalar(grep {my @x = @$_;
-		       scalar(grep {my @y = @$_;
-				    scalar(grep {ref(\$_) ne 'SCALAR'}
-					   @y)} @x)} @$file_types_array))
-      {
-	my @errors = map {my @x = @$_;map {my @y = @$_;map {ref($_)} @y} @x}
-	  grep {my @x = @$_;
-		scalar(grep {my @y = @$_;
-			     scalar(grep {ref(\$_) ne 'SCALAR'} @y)} @x)}
-	    @$file_types_array;
-	error("Expected an array of arrays of arrays of scalars for the ",
-	      "first argument, but got an array of arrays of [",
-	      join(',',@errors),"].");
-	quit(-12);
-      }
-
-    debug("Size of file types array after input check/fix: [",
-	  scalar(@$file_types_array),"].") if($DEBUG < -99);
-
-    debug("Contents of file types array before adding dash file: [(",
-	  join(')(',map {my $t=$_;'{' .
-			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
-				@$t) . '}'} @$file_types_array),")].")
-      if($DEBUG < -99);
-
-    #If standard input has been redirected in
-    if(!isStandardInputFromTerminal())
-      {
-	#The first element of the file types array is specifically the type of
-	#input file that can be provided via STDIN.  However, a user may
-	#explicitly supply a dash on the command line to have the STDIN go to a
-	#different parameter instead of the default
-	debug("file_types_array->[0] is [",
-	      (defined($file_types_array->[0]) ? 'defined' : 'undefined'),"].")
-	  if($DEBUG < -99);
-
-	if(!defined($file_types_array->[0]))
-	  {$file_types_array->[0] = []}
-
-	my $input_files = $file_types_array->[0];
-	my $num_input_files = scalar(grep {$_ ne '-'} map {@$_} @$input_files);
-	my $dash_was_explicit =
-	  scalar(grep {my $t=$_;scalar(grep {my $e=$_;
-					     scalar(grep {$_ eq '-'} @$e)}
-				       @$t)} @$file_types_array);
-
-	debug("There are $num_input_files input files.") if($DEBUG < -99);
-	debug("Outfile stub: $outfile_stub.") if($DEBUG < -99);
-
-	#If there's only one input file detected and the dash for STDIN was not
-	#explicitly provided, and an outfile suffix has been provided, use that
-	#input file as a stub for the output file name construction
-	if($num_input_files == 1 && !$dash_was_explicit &&
-	   defined($outfile_suffix) && $outfile_suffix ne '')
-	  {
-	    $outfile_stub = (grep {$_ ne '-'} map {@$_} @$input_files)[0];
-
-	    #Unless the dash was explicitly supplied as a separate file, treat
-	    #the input file as a stub only (not as an actual input file
-	    @$input_files = ();
-	    $num_input_files = 0;
-
-	    #If the stub contains a directory path AND outdirs were supplied
-	    if($outfile_stub =~ m%/% &&
-	       defined($outdir_array) && scalar(@$outdir_array))
-	      {
-		error("You cannot use --outdir and embed a directory path in ",
-		      "the outfile stub (-i with a single argument when ",
-		      "redirecting standard input in).  Please use one or ",
-		      "the other.");
-		quit(-13);
-	      }
-	  }
-	#If standard input has been redirected in (which is true because we're
-	#here) and the number of input files is not equal to 1 (i.e. the input
-	#file is not going to be treated as a stub) and an outfule_suffix has
-	#been defined, warn the user about the name of the outfile using STDIN
-	elsif($num_input_files != 1 && defined($outfile_suffix) &&
-	      $outfile_suffix ne '')
-	  {warning("Input on STDIN will be referred to as [$outfile_stub].")}
-
-	debug("Outfile stub: $outfile_stub.") if($DEBUG < -99);
-
-	#Unless the dash was supplied explicitly by the user, push it on
-	unless($dash_was_explicit)
-	  {
-	    debug("Pushing on the dash file to the other $num_input_files ",
-		  "files.") if($DEBUG < -99);
-	    debug("input_files is ",(defined($input_files) ? '' : 'un'),
-		  "defined, is of type [",ref($input_files),
-		  "], and contains [",
-		  (defined($input_files) ?
-		   scalar(@$input_files) : 'undefined'),"] items.")
-	      if($DEBUG < -99);
-
-	    debug(($input_files eq $file_types_array->[0] ?
-		   'input_files still references the first element in the ' .
-		   'file types array' : 'input_files has gotten overwritten'))
-	      if($DEBUG < -99);
-	    #If there are other input files present, push it
-	    if($num_input_files)
-	      {push(@{$input_files->[-1]},'-')}
-	    #Else create a new input file set with it as the only file member
-	    else
-	      {push(@$input_files,['-'])}
-
-	    debug(($input_files eq $file_types_array->[0] ?
-		   'input_files still references the first element in the ' .
-		   'file types array' : 'input_files has gotten overwritten'))
-	      if($DEBUG < -99);
-	  }
-      }
-
-    debug("Contents of file types array after adding dash file: [(",
-	  join(')(',map {my $t=$_;'{' .
-			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
-				@$t) . '}'} @$file_types_array),")].")
-      if($DEBUG < -99);
-
-    my $one_type_mode = 0;
-    #If there's only 1 input file type, merge all the sub-arrays
-    if(scalar(@$file_types_array) == 1)
-      {
-	$one_type_mode = 1;
-	debug("Only 1 type of file was submitted, so the array is being ",
-	      "pre-emptively flattened.") if($DEBUG < -99);
-
-	my @merged_array = ();
-	foreach my $row_array (@{$file_types_array->[0]})
-	  {push(@merged_array,@$row_array)}
-	$file_types_array->[0] = [[@merged_array]];
-      }
-
-    debug("Contents of file types array after merging sub-arrays: [(",
-	  join(')(',map {my $t=$_;'{' .
-			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
-				@$t) . '}'} @$file_types_array),")].")
-      if($DEBUG < -99);
-
-    debug("OUTDIR ARRAY DEFINED?: [",defined($outdir_array),"] SIZE: [",
-	  (defined($outdir_array) ? scalar(@$outdir_array) : '0'),"].")
-      if($DEBUG < -99);
-
-    #If output directories were supplied, error check them
-    if(defined($outdir_array) && scalar(@$outdir_array))
-      {
-	#Error check the outdir array to make sure it's a 2D array of strings
-	if(ref($outdir_array) ne 'ARRAY')
-	  {
-	    #Allow them to submit scalars of everything
-	    if(ref(\$outdir_array) eq 'SCALAR')
-	      {$outdir_array = [[$outdir_array]]}
-	    else
-	      {
-		error("Expected an array for the second argument, but got a [",
-		      ref($outdir_array),"].");
-		quit(-14);
-	      }
-	  }
-	elsif(scalar(grep {ref($_) ne 'ARRAY'} @$outdir_array))
-	  {
-	    my @errors = map {ref(\$_)} grep {ref($_) ne 'ARRAY'}
-	      @$outdir_array;
-	    #Allow them to have submitted an array of scalars
-	    if(scalar(@errors) == scalar(@$outdir_array) &&
-	       scalar(@errors) == scalar(grep {$_ eq 'SCALAR'} @errors))
-	      {$outdir_array = [$outdir_array]}
-	    else
-	      {
-		@errors = map {ref($_)} grep {ref($_) ne 'ARRAY'}
-		  @$outdir_array;
-		error("Expected an array of arrays for the second argument, ",
-		      "but got an array of [",join(',',@errors),"].");
-		quit(-15);
-	      }
-	  }
-	elsif(scalar(grep {my @x=@$_;scalar(grep {ref(\$_) ne 'SCALAR'} @x)}
-		     @$outdir_array))
-	  {
-	    #Look for SCALARs
-	    my @errors = map {my @x=@$_;map {ref($_)} @x}
-	      grep {my @x=@$_;scalar(grep {ref(\$_) ne 'SCALAR'} @x)}
-		@$outdir_array;
-	    error("Expected an array of arrays of scalars for the second ",
-		  "argument, but got an array of arrays of [",
-		  join(',',@errors),"].");
-	    quit(-16);
-	  }
-
-	debug("Adding directories into the mix.") if($DEBUG < -99);
-
-	#Put the directories in the file_types_array so that they will be
-	#error-checked and modified in the same way below.
-	push(@$file_types_array,$outdir_array);
-      }
-
-    debug("Contents of file types array after adding outdirs: [(",
-	  join(')(',map {my $t=$_;'{' .
-			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
-				@$t) . '}'} @$file_types_array),")].")
-      if($DEBUG < -99);
-
-    my $twods_exist = scalar(grep {my @x = @$_;
-			      scalar(@x) > 1 &&
-				scalar(grep {scalar(@$_) > 1} @x)}
-			     @$file_types_array);
-    debug("2D? = $twods_exist") if($DEBUG < -99);
-
-    #Determine the maximum dimensions of any 2D file arrays
-    my $max_num_rows = (#Sort on descending size so we can grab the largest one
-			sort {$b <=> $a}
-			#Convert the sub-arrays to their sizes
-			map {scalar(@$_)}
-			#Grep for arrays larger than 1 with subarrays larger
-			#than 1
-			grep {my @x = @$_;
-			      !$twods_exist ||
-				(scalar(@x) > 1 &&
-				 scalar(grep {scalar(@$_) > 1} @x))}
-			@$file_types_array)[0];
-
-    my $max_num_cols = (#Sort on descending size so we can grab the largest one
-			sort {$b <=> $a}
-			#Convert the sub-arrays to their sizes
-			map {my @x = @$_;(sort {$b <=> $a}
-					  map {scalar(@$_)} @x)[0]}
-			#Grep for arrays larger than 1 with subarrays larger
-			#than 1
-			grep {my @x = @$_;
-			      !$twods_exist ||
-				(scalar(@x) > 1 &&
-				 scalar(grep {scalar(@$_) > 1} @x))}
-			@$file_types_array)[0];
-
-    debug("Max number of rows and columns in 2D arrays: [$max_num_rows,",
-	  "$max_num_cols].") if($DEBUG < -99);
-
-    debug("Size of file types array: [",scalar(@$file_types_array),"].")
-      if($DEBUG < -99);
-
-    debug("Contents of modified file types array: [(",
-	  join(')(',map {my $t=$_;'{' .
-			   join('}{',map {my $e=$_;'[' . join('][',@$e) . ']'}
-				@$t) . '}'} @$file_types_array),")].")
-      if($DEBUG < -99);
-
-    #Error check to make sure that all file type arrays are either the two
-    #dimensions determined above or a 1D array equal in size to either of the
-    #dimensions
-    my $row_inconsistencies = 0;
-    my $col_inconsistencies = 0;
-    my $twod_col_inconsistencies = 0;
-    my @dimensionalities    = (); #Keep track for checking outfile stubs later
-    foreach my $file_type_array (@$file_types_array)
-      {
-	my @subarrays = @$file_type_array;
-
-	#If it's a 2D array (as opposed to just 1 col or row), look for
-	#inconsistencies in the dimensions of the array
-	if(scalar(scalar(@subarrays) > 1 &&
-		  scalar(grep {scalar(@$_) > 1} @subarrays)))
-	  {
-	    push(@dimensionalities,2);
-
-	    #If the dimensions are not the same as the max
-	    if(scalar(@subarrays) != $max_num_rows)
-	      {
-		debug("Row inconsistencies in 2D arrays found")
-		  if($DEBUG < -99);
-		$row_inconsistencies++;
-	      }
-	    elsif(scalar(grep {scalar(@$_) != $max_num_cols} @subarrays))
-	      {
-		debug("Col inconsistencies in 2D arrays found")
-		  if($DEBUG < -99);
-		$col_inconsistencies++;
-		$twod_col_inconsistencies++;
-	      }
-	  }
-	else #It's a 1D array (i.e. just 1 col or row)
-	  {
-	    push(@dimensionalities,1);
-
-	    #If there's only 1 row
-	    if(scalar(@subarrays) == 1)
-	      {
-		debug("There's only 1 row of size ",
-		      scalar(@{$subarrays[0]}),". Max cols: [$max_num_cols]. ",
-		      "Max rows: [$max_num_rows]")
-		  if($DEBUG < -99);
-		if(#$twods_exist &&
-		   !$one_type_mode &&
-		   scalar(@{$subarrays[0]}) != $max_num_rows &&
-		   scalar(@{$subarrays[0]}) != $max_num_cols &&
-		   scalar(@{$subarrays[0]}) > 1)
-		  {
-		    debug("Col inconsistencies in 1D arrays found (size: ",
-			  scalar(@{$subarrays[0]}),")")
-		      if($DEBUG < -99);
-		    $col_inconsistencies++;
-		  }
-		#If the 1D array needs to be transposed because it's a 1 row
-		#array and its size matches the number of rows, transpose it
-		elsif(#$twods_exist &&
-		      !$one_type_mode &&
-		      $max_num_rows != $max_num_cols &&
-		      scalar(@{$subarrays[0]}) == $max_num_rows)
-		  {@$file_type_array = transpose(\@subarrays)}
-	      }
-	    #Else if there's only 1 col
-	    elsif(scalar(@subarrays) == scalar(grep {scalar(@$_) == 1}
-					       @subarrays))
-	      {
-		debug("There's only 1 col of size ",scalar(@subarrays),
-		      "\nThe max number of columns is $max_num_cols")
-		  if($DEBUG < -99);
-		if(#$twods_exist &&
-		   !$one_type_mode &&
-		   scalar(@subarrays) != $max_num_rows &&
-		   scalar(@subarrays) != $max_num_cols &&
-		   scalar(@subarrays) != 1)
-		  {
-		    debug("Row inconsistencies in 1D arrays found")
-		      if($DEBUG < -99);
-		    $row_inconsistencies++;
-		  }
-		#If the 1D array needs to be transposed because it's a 1 col
-		#array and its size matches the number of cols, transpose it
-		elsif(#$twods_exist &&
-		      !$one_type_mode &&
-		      $max_num_rows != $max_num_cols &&
-		      scalar(@subarrays) == $max_num_cols)
-		  {@$file_type_array = transpose(\@subarrays)}
-	      }
-	    else #There must be 0 cols
-	      {
-		debug("Col inconsistencies in 0D arrays found")
-		  if($DEBUG < -99);
-		$col_inconsistencies++;
-	      }
-
-	    debug("This should be array references: [",
-		  join(',',@$file_type_array),"].") if($DEBUG < -99);
-	  }
-      }
-
-    #Re-determine the maximum dimensions of rows and columns in case they
-    #changed with the array manipulations above
-    $max_num_rows = (#Sort on descending size so we can grab the largest one
-		     sort {$b <=> $a}
-		     #Convert the sub-arrays to their sizes
-		     map {scalar(@$_)}
-		     #Grep for arrays larger than 1 with subarrays larger
-		     #than 1
-		     grep {my @x = @$_;
-			   !$twods_exist ||
-			     (scalar(@x) > 1 &&
-			      scalar(grep {scalar(@$_) > 1} @x))}
-		     @$file_types_array)[0];
-
-    $max_num_cols = (#Sort on descending size so we can grab the largest one
-		     sort {$b <=> $a}
-		     #Convert the sub-arrays to their sizes
-		     map {my @x = @$_;(sort {$b <=> $a}
-				       map {scalar(@$_)} @x)[0]}
-		     #Grep for arrays larger than 1 with subarrays larger
-		     #than 1
-		     grep {my @x = @$_;
-			   !$twods_exist ||
-			     (scalar(@x) > 1 &&
-			      scalar(grep {scalar(@$_) > 1} @x))}
-		     @$file_types_array)[0];
-
-    #Now fill in the 1D arrays to match the dimensions of the other arrays
-    foreach my $file_type_array (@$file_types_array)
-      {
-	my @subarrays = @$file_type_array;
-
-	#If this is a 1D array
-	if(scalar(scalar(@subarrays) == 1 ||
-		  scalar(grep {scalar(@$_) == 1} @subarrays)))
-	  {
-	    #Now I want to fill in the empty columns/rows with duplicates
-	    #for the associations to be constructed easily.  I'm doing this
-	    #here separately because sometimes above, I had to transpose
-	    #the arrays
-	    my $num_rows = scalar(@$file_type_array);
-	    my $num_cols = scalar(@{$file_type_array->[0]});
-	    if($num_rows < $max_num_rows)
-	      {
-		debug("Pushing onto a 1D array with 1 row and multiple ",
-		      "columns because num_rows ($num_rows) < ",
-		      "max_num_rows ($max_num_rows)") if($DEBUG < -99);
-		foreach(scalar(@$file_type_array)..($max_num_rows - 1))
-		  {push(@$file_type_array,[@{$file_type_array->[0]}])}
-	      }
-	    #If all rows don't have the same number of cols
-	    if(scalar(@$file_type_array) ==
-	       scalar(grep {scalar(@$_) < $max_num_cols}
-		      @$file_type_array))
-	      {
-		debug("Pushing onto a 1D array with 1 col and multiple ",
-		      "rows because not all rows have the max number of ",
-		      "columns: ($max_num_cols)")
-		  if($DEBUG < -99);
-		my $row_index = 0;
-		foreach my $row_array (@$file_type_array)
-		  {
-		    my $empty = scalar(@$row_array) ? 0 : 1;
-		    debug("Processing columns of row at index [$row_index] ",
-			  "from $num_cols..($max_num_cols - 1)")
-		      if($DEBUG < -99);
-		    foreach($num_cols..($max_num_cols - 1))
-		      {
-			debug("Pushing column [",
-			      ($empty ? 'undef' : $row_array->[0]),"] on.")
-			  if($DEBUG < -99);
-			push(@$row_array,($empty ? undef : $row_array->[0]));
-		      }
-
-		    $row_index++;
-		  }
-	      }
-	  }
-      }
-
-    if(($twods_exist < 2 &&
-	($row_inconsistencies || $twod_col_inconsistencies > 1 ||
-	 $twod_col_inconsistencies != $col_inconsistencies)) ||
-       ($twods_exist > 1 &&
-	($row_inconsistencies || $col_inconsistencies)))
-      {
-	debug("Row inconsistencies: $row_inconsistencies Col ",
-	      "inconsistencies: $col_inconsistencies") if($DEBUG < -99);
-	error("The number of ",
-	      ($row_inconsistencies ? "sets of files" .
-	       (defined($outdir_array) && scalar($outdir_array) ?
-		"/directories " : ' ') .
-	       ($row_inconsistencies &&
-		$col_inconsistencies ? 'and ' : '') : ''),
-	      ($col_inconsistencies ? "files" .
-	       (defined($outdir_array) && scalar($outdir_array) ?
-		"/directories " : ' ') .
-	       "in each set " : ''),
-	      "is inconsistent among the various types of files" .
-	      (defined($outdir_array) && scalar($outdir_array) ?
-	       "/directories " : ' '),
-	      "input.  Please check your file",
-	      (defined($outdir_array) && scalar($outdir_array) ?
-	       "/directory " : ' '),
-	      "inputs and make sure the number of sets and numbers of files",
-	      (defined($outdir_array) && scalar($outdir_array) ?
-	       " and directories " : ' '),
-	      "in each set match.");
-	quit(-17);
-      }
-
-    #Now I need to return and array of arrays of files that are to be processed
-    #together
-    my $infile_sets_array   = [];
-    my $outfile_stubs_array = [];
-
-    if($DEBUG < -99)
-      {
-	foreach my $file_type_array (@$file_types_array)
-	  {
-	    debug("New file type.  These should be array references: [",
-		  join(',',map {defined($_) ? $_ : 'undef'} @$file_type_array),
-		  "] and these should not [",
-		  join(',',map {defined($_) ? $_ : 'undef'}
-		       @{$file_type_array->[0]}),
-		  "] [",
-		  (scalar(@$file_type_array) > 1 ?
-		   join(',',map {defined($_) ? $_ : 'undef'}
-			@{$file_type_array->[1]}) : ''),"].");
-	    foreach my $file_set (@$file_type_array)
-	      {debug(join(',',map {defined($_) ? $_ : 'undef'} @$file_set))}
-	  }
-      }
-
-    #Keep a hash to look for conflicting outfile stub names
-    my $unique_out_check = {};
-    my $nonunique_found  = 0;
-
-    #Create the input file groups and output stub groups that are all
-    #associated with one another
-    foreach my $row_index (0..($max_num_rows - 1))
-      {
-	foreach my $col_index (0..$#{$file_types_array->[-1]->[$row_index]})
-	  {
-	    debug("Creating new set.") if($DEBUG < -99);
-	    push(@$infile_sets_array,[]);
-	    push(@$outfile_stubs_array,[]);
-	    if(defined($outdir_array) && scalar(@$outdir_array))
-	      {
-		foreach my $association (0..($#{$file_types_array} - 1))
-		  {
-		    push(@{$infile_sets_array->[-1]},
-			 $file_types_array->[$association]->[$row_index]
-			 ->[$col_index]);
-
-		    my $dirname = $file_types_array->[-1]->[$row_index]
-		      ->[$col_index];
-		    my $filename =
-		      ($file_types_array->[$association]->[$row_index]
-		       ->[$col_index] eq '-' ? $outfile_stub :
-		       $file_types_array->[$association]->[$row_index]
-		       ->[$col_index]);
-
-		    #Eliminate any path strings from the file name
-		    $filename =~ s/.*\///;
-
-		    #Prepend the outdir path
-		    my $new_outfile_stub = $dirname .
-		      ($dirname =~ /\/$/ ? '' : '/') . $filename;
-
-		    debug("Prepending directory $new_outfile_stub using [",
-			  $file_types_array->[-1]->[$row_index]->[$col_index],
-			  "].")
-		      if($DEBUG < -99);
-
-		    push(@{$outfile_stubs_array->[-1]},$new_outfile_stub);
-
-		    #Check for conflicting output file names that will
-		    #overwrite eachother
-		    if($dimensionalities[$association] == 2 &&
-		       exists($unique_out_check->{$new_outfile_stub}))
-		      {$nonunique_found = 1}
-		    push(@{$unique_out_check->{$new_outfile_stub}},$filename)
-		      if($dimensionalities[$association] == 2);
-		  }
-	      }
-	    else
-	      {
-		foreach my $association (0..($#{$file_types_array}))
-		  {
-		    debug("Adding to the set.") if($DEBUG < -99);
-		    push(@{$infile_sets_array->[-1]},
-			 $file_types_array->[$association]->[$row_index]
-			 ->[$col_index]);
-		    push(@{$outfile_stubs_array->[-1]},
-			 (defined($file_types_array->[$association]
-				  ->[$row_index]->[$col_index]) &&
-			  $file_types_array->[$association]->[$row_index]
-			  ->[$col_index] eq '-' ? $outfile_stub :
-			  $file_types_array->[$association]->[$row_index]
-			  ->[$col_index]));
-		  }
-	      }
-	  }
-      }
-
-    if($nonunique_found)
-      {
-	error('The following output file name stubs were created by ',
-	      'multiple input file names and will be overwritten if used.  ',
-	      'Please make sure each similarly named input file outputs to ',
-	      'a different output directory or that the input file names ',
-	      'bare no similarity.  Offending file name conflicts: [',
-	      join(',',map {"$_ is written to by [" .
-			      join(',',@{$unique_out_check->{$_}}) . "]"}
-		   (grep {scalar(@{$unique_out_check->{$_}}) > 1}
-		    keys(%$unique_out_check))),'].');
-	quit(-1);
-      }
-
-    debug("Processing input file sets: [(",
-	  join('),(',(map {my $a = $_;join(',',map {defined($_) ? $_ : 'undef'}
-					   @$a)} @$infile_sets_array)),
-	  ")] and output stubs: [(",
-	  join('),(',(map {my $a = $_;join(',',map {defined($_) ? $_ : 'undef'}
-					   @$a)} @$outfile_stubs_array)),")].")
-      if($DEBUG < 0);
-
-    return($infile_sets_array,$outfile_stubs_array);
-  }
-
 #This subroutine transposes a 2D array (i.e. it swaps rwos with columns).
 #Assumes argument is a 2D array.  This sub is used by getFileSets().
 sub transpose
@@ -3404,8 +2752,6 @@ sub usage
                                    See --help.
      --454-mode           OPTIONAL Adjust options for preprocessing sequencing
                                    data containing "frequent" indel errors.
-     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
-        abundance                  which a sequence will be used.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
@@ -3493,121 +2839,37 @@ end_print
                                    Creates directories specified, but not
                                    recursively.  Also see --extended --help for
                                    more advanced usage examples.
+     --sum-abundances|    OPTIONAL [Off*] When filtering out lesser abundant
+     --no-sum-abundances           sequences differing from more abundant
+                                   sequences only by indels, add the abundance
+                                   of the lesser abundant sequence to the more
+                                   abundant sequence.  *The default mode is
+                                   "off" unless --454-mode is provided.
      --454-mode           OPTIONAL [Off] Sets the the following default option
-                                   values: `--sum-abundances --align-mode
-                                   global` in order to prepare sequences
-                                   containing relatively frequent indel-errors
-                                   for the remainder of the CFF pipeline.  See
-                                   those options for further details.
-                                   Explicitly setting those options over-rides
-                                   this option.
-     -a|--minimum-        OPTIONAL [10] The abundance threshold at or above
-        abundance                  which a sequence will be used.  The larger
-                                   this number, the faster the computation and
-                                   the less accurate subsequent error estimates
-                                   will be.  When a low abundance sequence is
-                                   excluded, it will not be in any of the
-                                   output files.  0 or 1 means use all
-                                   sequences.
-     --sum-abundances|    OPTIONAL [Off,with --454-mode:On*] When filtering out
-     --no-sum-abundances           lesser abundant sequences differing from
-                                   more abundant sequences only by indels, add
-                                   the abundance of the lesser abundant
-                                   sequence to the more abundant sequence.
-                                   *The default mode is "off" unless
-                                   --454-mode is provided.
-     --align-mode         OPTIONAL [local,with --454-mode:global](global,local,
-                                   pairwise) Alignments are performed on select
-                                   sequence combinations to determine which
-                                   sequences differ only by indels.  This
-                                   option determines how many sequences will be
-                                   aligned together.  Pairwise is the most
-                                   accurate, but slow.  A pair is only aligned
-                                   if they have a "shifted hit" (determined by
-                                   -v).  Local alignment mode groups like-
-                                   sequences which are likely to have indels
-                                   (determined by -v) and an alignment is
-                                   performed for each group.  Local alignments
-                                   provide a considerable speed-increase with
-                                   only a rare possibility for inaccuracy.  A
-                                   global alignment is by far the fastest, but
-                                   will likely contain a handful of errors:
-                                   missing the optimal indel-only sequence
-                                   pairs or not filtering out sequences
-                                   differing only by indels.  Global alignments
-                                   will be segmented for a performance boost
-                                   when setting --parallel-processes to a value
-                                   greater than 1.  Segmentation is done using
-                                   the data structure created from -v.
-                                   Sequences bearing similarity to multiple
-                                   segmented groups are duplicated and aligned
-                                   to each group, so it is recommended to use
-                                   the default value for --parallel-processes,
-                                   as higher values can adversely affect
-                                   running time.  Note, global mode can produce
-                                   differing results for different values
-                                   supplied to --parallel-processes due to the
-                                   ambiguities of multiple sequence alignments.
-                                   A lesser abundant sequence will always list
-                                   indels as they related to the greatest
-                                   abundant sequence with which they differ by
-                                   only indels.
-     -v|--heuristic-str-  OPTIONAL [11] Only compare sequences that have this
-        size                       size subsequence in different places (this
-                                   will be referred to as a "shifted hit").
-                                   This is offered as a heuristic simply to
-                                   speed up the script.  All sequences are
-                                   assumed to be generally alignable at the
-                                   start, but if there is an indel between 2
-                                   sequences, a portion of their sequence will
-                                   be "shifted" relative to one-another.  This
-                                   option, when non-zero, will cause the script
-                                   to only look for indels when a subsequence
-                                   of this size has a shifted hit.  If a
-                                   sequence has no shifted hits with any other
-                                   sequence, it will be assumed to either be
-                                   completely different or contain
-                                   substitutions (with or without indels).
-                                   Note that a reciprocal insertion/deletion
-                                   within this size subsequence will be
-                                   overlooked using this heuristic.  This
-                                   effect can be mitigated by supplying
-                                   --heuristic-thorough.  To compare all
-                                   sequences, set this option to 0.
-     --heuristic-min-     OPTIONAL [1] If -v is too slow and you want to simply
-       seeds                       run fast (with reduced sensitivity), you may
-                                   increase this value to require more
-                                   "shifted hits" between two sequences in
-                                   order to run a pair through muscle.  There
-                                   will be virtually no speed improvement if
-                                   used with --heuristic-thorough.  See -v.
-     --heuristic-thorough OPTIONAL In addition to the -v heuristic, this option
-                                   mitigates the possibility of missing an
-                                   equally sized mononucleotide insertion/
-                                   deletion combination within -v bases from
-                                   one another (which the -v heuristic would
-                                   miss).  Not recommended when indels are not
-                                   likely because it greatly increases running
-                                   time.  Consider using with --454-mode.
-     --bases-per-gig      OPTIONAL [200000] The maximum number of bases to be
-                                   aligned by muscle per gig of ram (see
-                                   --gigs-ram).  This script splits up
-                                   alignments based on the heuristic parameters
-                                   (aligning only sequences that share a
-                                   "shifted hit").  If the amount of ram per
-                                   process is too little for the size of the
-                                   alignment and there is enough total ram on
-                                   your machine, the script temporarily reduces
-                                   the number of concurrent alignments until
-                                   the largest ones are done.  Otherwise, it
-                                   breaks up the alignment into chunks and
-                                   merges them when done.
-     --gigs-ram           OPTIONAL [auto] An integer indicating the total
-                                   number of gigs of memory to use as a maximum
-                                   when deciding how many concurrent processes
-                                   to run (see --parallel-processes) and when
-                                   determining the maximum number of sequences
-                                   to align together (see --bases-per-gig).
+                                   values (which can be explicitly over-
+                                   ridden): `--homopolymer-mode
+                                   --sum-abundances --align-mode pairwise` in
+                                   order to prepare sequences containing
+                                   relatively frequent indel-errors for the
+                                   remainder of the CFF pipeline.  If
+                                   --homopolymer-mode is explicitly turned off,
+                                   the default --align-mode is set to 'global'.
+                                   See those options for further details.
+     -h|                  OPTIONAL [Off*] Fastest speed-up option available.
+     --homopolymer-mode            This option causes the script to only filter
+     --no-homopolymer-mode         out sequences when they differ only by
+                                   homopolymer indels.  All other sequences
+                                   which differ only by non-homopolymer indels
+                                   are not filtered out.  A homopolymer indel
+                                   is a deletion or insertion of a base or
+                                   bases that are the same as the base or bases
+                                   to either side.  454 data is prone to this
+                                   type of error and is very unlikely to
+                                   produce a non-homopolymer indel.
+                                   *This option is truned on automatically when
+                                   --454-mode is provided, but can be turned
+                                   off explicitly by providing
+                                   --no-homopolymer-mode.
      -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
                                    expression to extract seq IDs from deflines.
                                    The ID pattern must be surrounded by
@@ -3653,6 +2915,118 @@ end_print
                                    prepended string will be followed by this
                                    character and the indel descriptions
                                    delimited by the --fakes-indel-separator.
+     -a|--minimum-        OPTIONAL [1] The abundance threshold at or above
+        abundance                  which a sequence will be used.  The larger
+                                   this number, the faster the computation and
+                                   the less accurate subsequent error estimates
+                                   will be.  When a low abundance sequence is
+                                   excluded, it will not be in any of the
+                                   output files.  0 or 1 means use all
+                                   sequences.
+     --align-mode         OPTIONAL [local*](global,local,pairwise) Alignments
+                                   are performed on select sequence
+                                   combinations to determine which sequences
+                                   differ only by indels.  This option
+                                   determines how many sequences will be
+                                   aligned together.  In any of the 3 modes,
+                                   sequences are only aligned if they have a
+                                   "shifted hit" (determined by -v).  The more
+                                   sequences aligned together, the faster this
+                                   script runs, but the more errors introduced
+                                   by misalignments.  Pairwise is the slowest
+                                   and most accurate.  Local mode groups like-
+                                   sequences which are likely to have indels
+                                   (determined by -v) and an alignment is
+                                   performed for each group.  Local alignments
+                                   provide a considerable speed-increase with
+                                   only a rare possibility for inaccuracy.  A
+                                   global alignment is the fastest, but is
+                                   likely to produce a handful of errors:
+                                   missing the optimal indel-only sequence
+                                   pairs or not filtering out sequences
+                                   differing only by indels.  Alignments tasks
+                                   will be segmented for a performance boost
+                                   when setting --parallel-processes to a value
+                                   greater than 1.  Segmentation is done using
+                                   the data structure created from -v.
+                                   Sequences bearing similarity to multiple
+                                   segmented groups are duplicated and aligned
+                                   to each group, so it is recommended to use
+                                   the default value for --parallel-processes,
+                                   as higher values can adversely affect
+                                   running time.  Note, global mode can produce
+                                   differing results for different values
+                                   supplied to --parallel-processes due to the
+                                   ambiguities of multiple sequence alignments.
+                                   A lesser abundant sequence will always list
+                                   indels as they related to the greatest
+                                   abundant sequence with which they differ by
+                                   only indels.  *The default mode is "local"
+                                   unless --454-mode or --homopolymer-mode are
+                                   provided.
+     -v|--heuristic-str-  OPTIONAL [11] Only compare sequences that have this
+        size                       size subsequence in different places (this
+                                   will be referred to as a "shifted hit").
+                                   The slowest portion of this analysis is
+                                   alignments - the more sequences to align,
+                                   the slower the script.  This heuristic cuts
+                                   down the number of necessary alignments
+                                   dramatically with little to no cost in
+                                   accuracy.  A sliding window of subsequences
+                                   are hashed with their positions as they are
+                                   read in.  If subsequences are "shifted"
+                                   relative to one-another, they will be
+                                   aligned together to determine if they differ
+                                   only by indels.  If a sequence has no
+                                   shifted hits with any other sequence, it
+                                   will be assumed to not differ by only
+                                   indels.  To compare all sequences, set this
+                                   option to 0.
+                                   NOTE: The fastest speed-up option for this
+                                   script is --homopolymer-mode, but this
+                                   option is useful if that is undesireable.
+                                   Refer to other --heuristic-... options to
+                                   fine-tune the heuristic.
+     --heuristic-min-     OPTIONAL [1] Minimum number of non-overlapping
+       shifts                      shifted heuristic string hits between two
+                                   sequences required to exist in order to
+                                   qualify for alignment.  See -v.  NOTE: Hits
+                                   are allowed to overlap.  Requires -v to be
+                                   greater than 0.
+     --heuristic-min-     OPTIONAL [1] Require a pair of sequences which have a
+       directs                     shifted hit (see -v) at a position greater
+                                   than the value of -v to have this many
+                                   "direct hits" (subsequences of size -v in
+                                   the same position).  Note, direct hits may
+                                   overlap.  Requires -v to be greater than 0.
+     --heuristic-thorough OPTIONAL In addition to the -v heuristic, this option
+                                   mitigates the possibility of missing an
+                                   equally sized homopolymer insertion/
+                                   deletion combination within -v bases from
+                                   one another (which the -v heuristic would
+                                   miss).  Not recommended when indels are not
+                                   likely because it greatly increases running
+                                   time.  Consider using with --454-mode.
+                                   Requires -v to be greater than 0.
+     --bases-per-gig      OPTIONAL [200000] The maximum number of bases to be
+                                   aligned by muscle per gig of ram (see
+                                   --gigs-ram).  This script splits up
+                                   alignments based on the heuristic parameters
+                                   (aligning only sequences that share a
+                                   "shifted hit").  If the amount of ram per
+                                   process is too little for the size of the
+                                   alignment and there is enough total ram on
+                                   your machine, the script temporarily reduces
+                                   the number of concurrent alignments until
+                                   the largest ones are done.  Otherwise, it
+                                   breaks up the alignment into chunks and
+                                   merges them when done.
+     --gigs-ram           OPTIONAL [auto] An integer indicating the total
+                                   number of gigs of memory to use as a maximum
+                                   when deciding how many concurrent processes
+                                   to run (see --parallel-processes) and when
+                                   determining the maximum number of sequences
+                                   to align together (see --bases-per-gig).
      -y|--muscle-exe      OPTIONAL [muscle] The command to use to call muscle.
      --use-muscle-gaps    OPTIONAL Use muscle's default context-dependent gap
                                    penalties instead of our default static gap
@@ -4136,14 +3510,12 @@ sub clustalw2indelsSubs
 	   [$numnontermindels,$numsubs,$indels,$subs]);
   }
 
-#Globals used: $processes, $align_mode
+#Globals used: $processes, $align_mode, $homopolymers_only
 sub getIndelFamilies
   {
     my $rec_hash      = $_[0];
     my $heur_hash     = $_[1];
     my $aln_strs      = {};
-
-    my $split_sets    = divideGroupings($heur_hash,$rec_hash);
     my $families      = [];
     my $already_added = {};
     my $firstd_size   = scalar(keys(%$heur_hash));
@@ -4155,7 +3527,13 @@ sub getIndelFamilies
 	error("Invalid alignment mode: [$align_mode].");
 	return($families);
       }
-    alignLoadHeurHash($processes,$rec_hash,$heur_hash,$split_sets,$align_mode);
+
+    my $split_sets = divideGroupings($heur_hash,$rec_hash);
+    alignLoadHeurHash($processes,
+		      $rec_hash,
+		      $heur_hash,
+		      $split_sets,
+		      $align_mode);
 
     verbose("Grouping into indel families.");
 
@@ -4198,9 +3576,6 @@ sub getIndelFamilies
 	      {
 		my $tsize1 = getAbund($rec_hash->{$id1});
 		my $tsize2 = getAbund($rec_hash->{$id2});
-		verbose("$id1 (abund: $tsize1) & $id2 (abund: $tsize2) ",
-			"only differ by indels: [",
-			join(',',@{$heur_hash->{$id1}->{$id2}}),"].");
 
 		$already_added->{$id2} = 1;
 
@@ -4215,6 +3590,10 @@ sub getIndelFamilies
 		  }
 		else
 		  {
+		    verbose("$id1 (abund: $tsize1) & $id2 (abund: $tsize2) ",
+			    "only differ by indels: [",
+			    join(',',@{$heur_hash->{$id1}->{$id2}}),"].");
+
 		    $rec2->[2]->{PARENT} = $id1;
 		    $rec2->[2]->{INDELS} = $heur_hash->{$id1}->{$id2};
 		  }
@@ -4365,7 +3744,7 @@ sub getID
     return($id);
   }
 
-#Globals used: $seq_id_pattern
+#Globals used: $abundance_pattern
 sub getAbund
   {
     my $rec   = $_[0];
@@ -4636,7 +4015,13 @@ sub getCheckAllSeqRecs
 
 	next if($abund < $min_abund);
 
-	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt,ID=>$id,ABUND=>$abund}]);
+	my $nomono_seq = $seq;
+	$nomono_seq =~ s/(.)\1*(?=\1)//g;
+	my $nomono_len = length($nomono_seq);
+
+	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt,ID=>$id,ABUND=>$abund,
+				    NOMONOS=>$nomono_seq,
+				    NOMONOL=>$nomono_len}]);
       }
 
     closeIn(*INPUT);
@@ -5315,13 +4700,14 @@ sub getMuscleExe
 #key is an ID of a sequence that is more abundant than the sequence of the ID
 #in the inner key.  The value at the end of the hash is an internal value which
 #is changed by other subs - do not count on it.
+#Globals used: $homopolymers_only
 sub getComparisons
   {
     my $recs             = $_[0];
     my $str_size         = defined($_[1]) ? $_[1] : 11;
     my $min_shifted_hits = defined($_[2]) ? $_[2] : 1;
     my $mitigate_recips  = defined($_[3]) ? $_[3] : 1;
-    my $min_direct_hits  = defined($_[4]) ? $_[4] : 0; #DEPRECATED - DO NOT USE
+    my $min_direct_hits  = defined($_[4]) ? $_[4] : 0;
     my $rec_hash         = $_[5];
 
     my $hash = {}; #$hash->{seqseg}->{position}->{R,F}->{ID} = 1
@@ -5353,7 +4739,7 @@ sub getComparisons
       }
 
     verbose("Reducing comparisons by looking for at least ",
-	    "[$min_shifted_hits] shifted hits (see --heuristic-min-seeds)",
+	    "[$min_shifted_hits] shifted hits (see --heuristic-min-directs)",
 	    ($mitigate_recips ?
 	     " & reciprocal single base insertions & deletions within " .
 	     "$str_size bases (see --heuristic-thorough)" : ''),".");
@@ -5388,7 +4774,7 @@ sub getComparisons
 	  }
       }
 
-    debug("Sub-sequence Hash constructed in ",markTime()," seconds");
+    debug("Sub-sequence Hash constructed at ",markTime(0)," seconds");
 
     #Now let's flip & collapse that hash so that a series of ID keys are
     #concatenated into a single key (position-groups delimited by colons) and
@@ -5398,7 +4784,7 @@ sub getComparisons
     #becomes a key string like this: id1,id2,id3:(1)id4,id5,id6:... =
     #TCGTAGCTTAG
     my $collapse = {};
-    if($min_shifted_hits == 1 && !$min_direct_hits && !$mitigate_recips)
+    if($min_shifted_hits == 1 && !$mitigate_recips)
       {
 	$cnt = 0;
 	foreach my $key (keys(%$hash))
@@ -5418,22 +4804,22 @@ sub getComparisons
 			     keys(%{$hash->{$key}}))} = $key;
 	  }
 
-	debug("Hash collapsed in ",markTime()," seconds");
+	debug("Hash collapsed at ",markTime(0)," seconds");
       }
 
-    my $total = scalar($min_shifted_hits == 1 && !$min_direct_hits &&
-		       !$mitigate_recips ? keys(%$collapse) : keys(%$hash));
+    my $total = scalar($min_shifted_hits == 1 && !$mitigate_recips ?
+		       keys(%$collapse) : keys(%$hash));
     my $num = 0;
 
-    foreach my $key ($min_shifted_hits == 1 && !$min_direct_hits &&
-		     !$mitigate_recips ? keys(%$collapse) : keys(%$hash))
+    foreach my $key ($min_shifted_hits == 1 && !$mitigate_recips ?
+		     keys(%$collapse) : keys(%$hash))
       {
 	$num++;
 	verboseOverMe("Determining comparisons... ",int(100*$num/$total),
 		      '% done.');
 
-	my $ukey = $min_shifted_hits == 1 && !$min_direct_hits &&
-	  !$mitigate_recips ? $collapse->{$key} : $key;
+	my $ukey = $min_shifted_hits == 1 && !$mitigate_recips ?
+	  $collapse->{$key} : $key;
 	debug("UKEY:($ukey/$key):\n\t",
 	      join("\n\t",
 		   (map {join(",",keys(%{$hash->{$ukey}->{$_}->{R}}))}
@@ -5512,14 +4898,38 @@ sub getComparisons
 						     $min_shifted_hits)}
 					     @group2)
 			  {
+			    #If we're only returning homopolymers and the
+			    #homopolymer-reduced strings differ, skip
+			    if($homopolymers_only &&
+			       noMonosDiffer($rec_hash->{$member1},
+					     $rec_hash->{$member2}))
+			      {next}
 			    my $size2 = getAbund($rec_hash->{$member2});
-			    if($size1 > $size2 ||
-			       ($size1 == $size2 && $member1 lt $member2))
-			      {$hits->{$member1}->{$member2}->{S}++}
-			    elsif($size1 < $size2 ||
-				  ($size1 == $size2 && $member2 lt $member1))
-			      {$hits->{$member2}->{$member1}->{S}++}
+			    my($greater,$lesser);
+			    if($size1 > $size2)
+			      {
+				$greater = $member1;
+				$lesser  = $member2;
+			      }
+			    elsif($size1 < $size2)
+			      {
+				$greater = $member2;
+				$lesser  = $member1;
+			      }
+			    else
 			    #Ignore when equal - happens when there's a repeat
+			      {next}
+
+			    #Must also meet the minimum direct hits rule(s)
+			    if((exists($hits->{$greater}) &&
+				exists($hits->{$greater}->{$lesser})) ||
+			       meetMinDirectsRule($rec_hash->{$member1}->[1],
+						  $rec_hash->{$member2}->[1],
+						  $str_size,
+						  ($key1 < $key2 ? #Lesser pos.
+						   $key1 : $key2),
+						  $min_direct_hits))
+			      {$hits->{$greater}->{$lesser}->{S}++}
 			  }
 		      }
 		  }
@@ -5537,48 +4947,46 @@ sub getComparisons
 		    foreach my $fid (@fake_ids)
 		      {
 			next if($rid eq $fid);
-			next unless(confirmRecipIndel($key1,
-						      $rid,
-						      $fid,
-						      $rec_hash,
-						      $str_size));
+
+			#If we're only returning homopolymers and the
+			#homopolymer-reduced strings differ, skip
+			if($homopolymers_only &&
+			   noMonosDiffer($rec_hash->{$rid},
+					 $rec_hash->{$fid}))
+			  {next}
+
+			#We must confirm this is a reciprocal indel situation
+			unless(confirmRecipIndel($key1,
+						 $rid,
+						 $fid,
+						 $rec_hash,
+						 $str_size))
+			  {next}
+
 			debug("FOUND DELETION BETWEEN REAL $rid AND FAKE ",
 			      "$fid AT POSITION $key1 WITH SEQUENCE $ukey")
 			  if($DEBUG > 3);
+
 			my($first,$second) =
 			  sort {getAbund($rec_hash->{$b}) <=>
 				  getAbund($rec_hash->{$a}) || $a cmp $b}
 			    ($rid,$fid);
-			$hits->{$first}->{$second}->{R}++;
-		      }
-		  }
-	      }
 
-	    if($min_direct_hits)
-	      {
-		my $group1_size = scalar(@group1);
-		if($group1_size > 1)
-		  {
-		    for(my $k = 0;$k<($group1_size-1);$k++)
-		      {
-			my $member1 = $group1[$k];
-			my $size1 = getAbund($rec_hash->{$member1});
-			for(my $l = $k+1;$l<$group1_size;$l++)
-			  {
-			    my $member2 = $group1[$l];
-			    my $size2   = getAbund($rec_hash->{$member2});
-			    if($size1 > $size2 ||
-			       ($size1 == $size2 && $member1 lt $member2))
-			      {$hits->{$member1}->{$member2}->{D}++}
-			    else
-			      {$hits->{$member2}->{$member1}->{D}++}
-			  }
+			#Must also meet the minimum direct hits rule(s)
+			if((exists($hits->{$first}) &&
+			    exists($hits->{$first}->{$second})) ||
+			   meetMinDirectsRule($rec_hash->{$first}->[1],
+					      $rec_hash->{$second}->[1],
+					      $str_size,
+					      $key1,
+					      $min_direct_hits))
+			  {$hits->{$first}->{$second}->{R}++}
 		      }
 		  }
 	      }
 	  }
 
-	#Now we'll add mononucleotide deletions deletions within $str_size nts
+	#Now we'll add mononucleotide deletions within $str_size nts
 	if($mitigate_recips && scalar(@group_keys))
 	  {
 	    my $key1 = $group_keys[-1];
@@ -5592,48 +5000,45 @@ sub getComparisons
 		foreach my $fid (@fake_ids)
 		  {
 		    next if($rid eq $fid);
-		    next unless(confirmRecipIndel($key1,
-						  $rid,
-						  $fid,
-						  $rec_hash,
-						  $str_size));
+
+		    #If we're only returning homopolymers and the
+		    #homopolymer-reduced strings differ, skip
+		    if($homopolymers_only &&
+		       noMonosDiffer($rec_hash->{$rid},
+				     $rec_hash->{$fid}))
+		      {next}
+
+		    #We must confirm this is a reciprocal indel situation
+		    unless(confirmRecipIndel($key1,
+					     $rid,
+					     $fid,
+					     $rec_hash,
+					     $str_size))
+		      {next}
+
 		    my($first,$second) = sort {getAbund($rec_hash->{$b}) <=>
 						 getAbund($rec_hash->{$a}) ||
 						   $a cmp $b} ($rid,$fid);
+
 		    debug("FOUND DELETION between REAL $rid AND FAKE $fid at ",
 			  "POSITION $key1 with SEQUENCE $ukey")
 		      if($DEBUG > 3);
-		    $hits->{$first}->{$second}->{R}++;
-		  }
-	      }
-	  }
 
-	#Now we'll count direct hits
-	if($min_direct_hits)
-	  {
-	    #Do the direct hits for the last group
-	    my $key1        = $group_keys[$group_size-1];
-	    my @group1      = keys(%{$hash->{$ukey}->{$key1}->{R}});
-	    my $group1_size = scalar(@group1);
-
-	    next if($group1_size <= 1);
-
-	    for(my $k = 0;$k<($group1_size-1);$k++)
-	      {
-		my $member1 = $group1[$k];
-		for(my $l = $k+1;$l<$group1_size;$l++)
-		  {
-		    my $member2 = $group1[$l];
-		    if($member1 lt $member2)
-		      {$hits->{$member1}->{$member2}->{D}++}
-		    elsif($member1 gt $member2)
-		      {$hits->{$member2}->{$member1}->{D}++}
+		    #Must also meet the minimum direct hits rule(s)
+		    if((exists($hits->{$first}) &&
+			exists($hits->{$first}->{$second})) ||
+		       meetMinDirectsRule($rec_hash->{$first}->[1],
+					  $rec_hash->{$second}->[1],
+					  $str_size,
+					  $key1,
+					  $min_direct_hits))
+		      {$hits->{$first}->{$second}->{R}++}
 		  }
 	      }
 	  }
       }
 
-    debug("Time to compute comparisons: ",scalar(markTime()));
+    debug("Compute comparisons completed at: ",scalar(markTime(0)));
 
     if($DEBUG)
       {
@@ -5643,9 +5048,9 @@ sub getComparisons
 	    foreach my $second (keys(%{$hits->{$first}}))
 	      {
 		my $compare =
-		  (($min_direct_hits &&
-		    exists($hits->{$first}->{$second}->{D}) &&
-		    $hits->{$first}->{$second}->{D} >= $min_direct_hits) ||
+		  (#($min_direct_hits &&
+		   # exists($hits->{$first}->{$second}->{D}) &&
+		   # $hits->{$first}->{$second}->{D} >= $min_direct_hits) ||
 		   ($min_shifted_hits &&
 		    exists($hits->{$first}->{$second}->{S}) &&
 		    $hits->{$first}->{$second}->{S} >= $min_shifted_hits) ||
@@ -5655,9 +5060,7 @@ sub getComparisons
 		$num_compares += $compare;
 		if($DEBUG > 3)
 		  {
-		    debug('DIRECTS(',(exists($hits->{$first}->{$second}->{D}) ?
-				      $hits->{$first}->{$second}->{D} : '0'),
-			  ")\tSHIFTS(",
+		    debug("SHIFTS(",
 			  (exists($hits->{$first}->{$second}->{S}) ?
 			   $hits->{$first}->{$second}->{S} : '0'),
 			  ")\t1DELS(",
@@ -5668,11 +5071,14 @@ sub getComparisons
 	      }
 	  }
 
-	debug("Time to print comparison debug output: ",scalar(markTime()),
+	debug("Printed comparison debug output at: ",scalar(markTime(0)),
 	      " Num calls to muscle: $num_compares");
       }
 
     debug("Heuristic hash has [",scalar(keys(%$hits)),"] outer keys.");
+    debug("Comparisons:\n\t",
+	  join("\n\t",map {$_ . ':' . join(',',keys(%{$hits->{$_}}))}
+	       keys(%$hits))) if($DEBUG > 2);
     verbose("Comparison reduction done.");
 
     return($hits);
@@ -5983,6 +5389,12 @@ sub alignLoadHeurHash
 		elsif($line =~ /^DEBUG/)
 		  {
 		    debug("$childstr$line");
+		    verboseOverMe("$status_str  $progress_str  ",
+				  $child_status_str);
+		  }
+		elsif($line =~ /^\s+\S/) #Assume multi-line err/warn/debug
+		  {
+		    verbose("$childstr$line");
 		    verboseOverMe("$status_str  $progress_str  ",
 				  $child_status_str);
 		  }
@@ -6621,7 +6033,7 @@ sub getMuscleAlignment
 
     waitpid($pid,0);
 
-    verbose("Muscle alignment: $output") if($verbose > 2);
+    debug("Muscle alignment done",($DEBUG > 2 ? ": $output" : '.'));
 
     return($output);
   }
@@ -6656,3 +6068,44 @@ sub replaceAbund
     return($def);
   }
 
+sub noMonosDiffer
+  {
+    my $rec1 = $_[0];
+    my $rec2 = $_[1];
+    my $min = $rec1->[2]->{NOMONOL} < $rec2->[2]->{NOMONOL} ?
+      $rec1->[2]->{NOMONOL} : $rec2->[2]->{NOMONOL};
+    return($rec1->[2]->{NOMONOL} == $rec2->[2]->{NOMONOL} ?
+	   $rec1->[2]->{NOMONOS} ne $rec2->[2]->{NOMONOS} :
+	   substr($rec1->[2]->{NOMONOS},0,$min) ne
+	   substr($rec2->[2]->{NOMONOS},0,$min));
+  }
+
+#Globals used: $homopolymers_only
+sub meetMinDirectsRule
+  {
+    my $seq1        = $_[0];
+    my $seq2        = $_[1];
+    my $str_size    = $_[2];
+    my $end_coord   = $_[3];
+    my $min_directs = $_[4];
+    my $direct_hits = 0;
+
+    #If there are no minimum direct hits required or the shifted hit (i.e.
+    #end_coord) is too close to the beginning of the sequence, return true
+    return(1) if($homopolymers_only || $min_directs == 0 ||
+		 ($str_size + $min_directs - 1) >= $end_coord);
+
+    for(my $p = 0;$p < ($end_coord - $str_size);$p++)
+      {
+	if(substr($seq1,$p,$str_size) eq substr($seq2,$p,$str_size))
+	  {
+	    $direct_hits++;
+	    return(1) if($direct_hits >= $min_directs);
+	  }
+      }
+
+    debug("Failed meetMinDirectsRule: shift coord: [$end_coord]:\n$seq1\n",
+	  "$seq2");
+
+    return(0);
+  }
