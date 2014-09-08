@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '3.4';
+my $software_version_number = '3.5';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -117,7 +117,7 @@ my $GetOptHash =
 
    #Homopolymer options
    'h|homopolymer-mode|454-' .
-   'mode|ion-torrent-mode!'  => \$homopolymers_only,     #OPTIONAL [prefilter:
+   'mode|ion-torrent-mode!'    => \$homopolymers_only,   #OPTIONAL [prefilter:
 				                         #on, no-prefilter:off]
    'long-homopol-length=i'     => \$long_homopol_length, #OPTIONAL [4]
    'max-long-homopol-diff=i'   => \$max_long_hpl_diff,   #OPTIONAL [2]
@@ -4052,7 +4052,7 @@ sub deflineAddendum
     return($delimiter);
   }
 
-#Uses globals: $seq_id_pattern, $abundance_pattern
+#Uses globals: $seq_id_pattern, $abundance_pattern, $homopolymers_only
 #Returns sequence records as an array of arrays and adds the original order
 #number to the end of each record in a hash keyed on "ORDER".
 sub getCheckAllSeqRecs
@@ -4150,24 +4150,28 @@ sub getCheckAllSeqRecs
 
 	next if($abund < $min_abund);
 
-	my $nomono_seq = uc($seq);
-	$nomono_seq =~ s/(.)\1*(?=\1)//g;
-	my $nomono_len = length($nomono_seq);
-	my $nomono_lens = '';
-	while($seq =~ /((.)\2*)/ig)
+	my($nomono_seq,$nomono_len,$nomono_lens);
+	if($homopolymers_only)
 	  {
-	    my $nts = $1;
-	    my $ntslen = length($nts);
-	    debug("Processing nucleotides [$nts] of length [$ntslen].")
-	      if($DEBUG > 5);
-	    #Append a character representing the number of bases
-	    $nomono_lens .= getLenChar($ntslen);
+	    $nomono_seq = uc($seq);
+	    $nomono_seq =~ s/(.)\1*(?=\1)//g;
+	    $nomono_len = length($nomono_seq);
+	    $nomono_lens = '';
+	    while($seq =~ /((.)\2*)/ig)
+	      {
+		my $nts = $1;
+		my $ntslen = length($nts);
+		debug("Processing nucleotides [$nts] of length [$ntslen].")
+		  if($DEBUG > 5);
+		#Append a character representing the number of bases
+		$nomono_lens .= getLenChar($ntslen);
+	      }
+
+	    debug("NoMonos lengths string: [$nomono_lens].") if($DEBUG > 1);
+
+	    if($$min_nomono_ref == 0 || $$min_nomono_ref > $nomono_len)
+	      {$$min_nomono_ref = $nomono_len}
 	  }
-
-	debug("NoMonos lengths string: [$nomono_lens].") if($DEBUG > 1);
-
-	if($$min_nomono_ref == 0 || $$min_nomono_ref > $nomono_len)
-	  {$$min_nomono_ref = $nomono_len}
 
 	#ORDER is an integer to use to sort to get back the original file order
 	#ID is the ID parsed from the defline
@@ -5151,12 +5155,6 @@ sub getComparisons
 						     $min_shifted_hits)}
 					     @group2)
 			  {
-			    #If we're only returning homopolymers and the
-			    #homopolymer-reduced strings differ, skip
-			    if($homopolymers_only &&
-			       noMonosDiffer($rec_hash->{$member1},
-					     $rec_hash->{$member2}))
-			      {next}
 			    my $size2 = getAbund($rec_hash->{$member2});
 			    my($greater,$lesser);
 			    if($size1 > $size2)
@@ -5200,13 +5198,6 @@ sub getComparisons
 		    foreach my $fid (@fake_ids)
 		      {
 			next if($rid eq $fid);
-
-			#If we're only returning homopolymers and the
-			#homopolymer-reduced strings differ, skip
-			if($homopolymers_only &&
-			   noMonosDiffer($rec_hash->{$rid},
-					 $rec_hash->{$fid}))
-			  {next}
 
 			#We must confirm this is a reciprocal indel situation
 			unless(confirmRecipIndel($key1,
@@ -5253,13 +5244,6 @@ sub getComparisons
 		foreach my $fid (@fake_ids)
 		  {
 		    next if($rid eq $fid);
-
-		    #If we're only returning homopolymers and the
-		    #homopolymer-reduced strings differ, skip
-		    if($homopolymers_only &&
-		       noMonosDiffer($rec_hash->{$rid},
-				     $rec_hash->{$fid}))
-		      {next}
 
 		    #We must confirm this is a reciprocal indel situation
 		    unless(confirmRecipIndel($key1,
@@ -5941,9 +5925,14 @@ sub alignPrintIndelPairs
     my $split_mode = $_[4];
     my $aln_strs   = {};
 
-    #The check on homopolymers_only is outdated and should be removed, because
-    #you can no longer get here in homopolymer mode
-    if(!$homopolymers_only && $align_mode eq 'global')
+    if($homopolymers_only)
+      {
+	error("Internal error: alignPrintIndelPairs is not intended for use ",
+	      "in homopolymer mode.");
+	return();
+      }
+
+    if($align_mode eq 'global')
       {
 	my $line_num     = 0;
 	my $verbose_freq = 1000;
@@ -6002,10 +5991,7 @@ sub alignPrintIndelPairs
 	my $rec1      = $rec_hash->{$id1};
 	my $diff_hash = {};
 	my $alnstr    = '';
-	#The check on homopolymers_only is outdated and should be removed,
-	#because you can no longer get here in homopolymer mode
-	if(!$homopolymers_only &&
-	   $align_mode eq 'global' && !exists($aln_strs->{$id1}))
+	if($align_mode eq 'global' && !exists($aln_strs->{$id1}))
 	  {
 	    error("Outer ID [$id1] was not found in the alignment string ",
 		  "hash though it should have been there.  It is ",
@@ -6013,9 +5999,7 @@ sub alignPrintIndelPairs
 		  "in the split set.");
 	    next;
 	  }
-	#The check on homopolymers_only is outdated and should be removed,
-	#because you can no longer get here in homopolymer mode
-	elsif(!$homopolymers_only && $align_mode eq 'local')
+	elsif($align_mode eq 'local')
 	  {
 	    my @remaining_ids = sort {$rec_hash->{$b}->[2]->{ABUND} <=>
 					$rec_hash->{$a}->[2]->{ABUND} ||
@@ -6056,37 +6040,22 @@ sub alignPrintIndelPairs
 	    #$indels is an array of strings describing each indel
 	    my($numnontermindels,$numsubs,$indels);
 
-	    #The check on homopolymers_only is outdated and should be removed,
-	    #because you can no longer get here in homopolymer mode - this will
-	    #always be false
-	    if($homopolymers_only)
-	      {($numnontermindels,$numsubs,$indels) = getHomoPolDiffs($rec1,
-								      $rec2)}
-	    else
-	      {($numnontermindels,$numsubs,$indels) =
-		 ($align_mode eq 'local' || $align_mode eq 'global' ?
-		  clustalw2indelsSubs($aln_strs->{$id1} . $aln_strs->{$id2},
-				      1) :
-		  clustalw2indelsSubs(getMuscleAlignment($rec1->[1],
-							 $rec2->[1],
-							 $muscle_gaps)))}
+	    ($numnontermindels,$numsubs,$indels) =
+	      ($align_mode eq 'local' || $align_mode eq 'global' ?
+	       clustalw2indelsSubs($aln_strs->{$id1} . $aln_strs->{$id2},1) :
+	       clustalw2indelsSubs(getMuscleAlignment($rec1->[1],
+						      $rec2->[1],
+						      $muscle_gaps)));
 
 	    if($numsubs == 0 && $numnontermindels)
 	      {
 		$tmp_done_hash->{$id2} = 1;
 		verbose("$id1 & $id2 have $numnontermindels indels and ",
 			"$numsubs substitutions.");
-		#$heur_hash->{$id1}->{$id2} = $indels;
 		print("$id1\t$id2\t",join(',',@$indels),"\n");
 	      }
 	    else
 	      {
-		#The check on homopolymers_only is outdated and should be
-		#removed, because you can no longer get here in homopolymer
-		#mode - this debug will never print
-		debug("$id1 & $id2 have $numnontermindels indels and ",
-		      "$numsubs substitutions.") if($homopolymers_only);
-		#$heur_hash->{$id1}->{$id2} = undef;
 		print("$id1\t$id2\t\n");
 	      }
 	  }
@@ -6384,7 +6353,6 @@ sub noMonosDiffer
 	   substr($rec2->[2]->{NOMONOS},0,$min));
   }
 
-#Globals used: $homopolymers_only
 sub meetMinDirectsRule
   {
     my $seq1        = $_[0];
@@ -6396,7 +6364,7 @@ sub meetMinDirectsRule
 
     #If there are no minimum direct hits required or the shifted hit (i.e.
     #end_coord) is too close to the beginning of the sequence, return true
-    return(1) if($homopolymers_only || $min_directs == 0 ||
+    return(1) if($min_directs == 0 ||
 		 ($str_size + $min_directs - 1) >= $end_coord);
 
     for(my $p = 0;$p < ($end_coord - $str_size);$p++)
@@ -6435,164 +6403,23 @@ sub getNoMonosHash
 #0.
 sub getLenChar
   {
-    if($_[0] > 94)
-      {warning("Long homopolymer stretch detected.  Could cause problems.")}
-    debug("Returning [",(chr(31 + ($_[0] % 95))),"] for length [$_[0]].")
+    if($_[0] > 94 && $DEBUG)
+      {
+	warning("Long homopolymer stretch exceding print limit detected.  ",
+		"Long homopolymer lengths are stored in a string where each ",
+		"character represents a length.  The longest length that can ",
+		"be represented in ASCII format is 94.  The script will ",
+		"still work, but debug prints for long homopolymers will not ",
+		"be correctly represented.");
+      }
+    debug("Returning [",(chr(31 + $_[0])),"] for length [$_[0]].")
       if($DEBUG > 5);
-    return(chr(31 + ($_[0] % 95)));
+    return(chr(31 + $_[0]));
   }
 
 #Returns an integer length value from an ascii-encoded single character
 sub getCharLen
   {return(ord($_[0]) - 31)}
-
-#Returns the same as clustalw2indelsSubs ($numnontermindels,$numsubs,$indels)
-#which are int, int, & a reference to an array of strings
-#Uses the NOMONO values stored in each record to determine the homopolymer
-#differences.  Differences are reported relative to the more abundant sequence
-#and the positions of the differences are alignment positions.  If the
-#difference in length of a homopolymer indel is greater than max_diff, it
-#stops, sets subs to 1 and returns what it has gotten thus far.  Support for
-#counting substitutions and handling homopolymer differences as substitutions
-#when max_diff is 0 is not yet implemented.
-#Globals used: $max_long_hpl_diff
-sub getHomoPolDiffs
-  {
-    error("This subroutine is outdated.  The fact that it has been called is an error.");
-
-    #($numnontermindels,$numsubs,$indels)
-    my $rec1        = $_[0];
-    my $rec2        = $_[1];
-    my $stop_at_sub = defined($_[2]) ? $_[2] : 1;
-    my $max_diff    = defined($max_long_hpl_diff) ? $max_long_hpl_diff : 2;
-
-    my $numnontermindels = 0;
-    my $subs             = 0;
-    my $indels           = [];
-
-    if(noMonosDiffer($rec1,$rec2))
-      {
-	$subs = 1;
-	if(!$stop_at_sub)
-	  {error("Finding substitutions in --homopolymers-mode is ",
-		 "unsupported.")}
-      }
-    else
-      {
-	my $aln_position1    = 0;
-	my $aln_position2    = 0;
-	my $min_nomono_len   = $rec1->[2]->{NOMONOL} < $rec2->[2]->{NOMONOL} ?
-	  $rec1->[2]->{NOMONOL} : $rec2->[2]->{NOMONOL};
-
-	#This will sort by decreasing abundance
-	my($greater_n,$lesser_n) = map {$_->[2]->{NOMONOC}}
-	  sort {getAbund($b) <=> getAbund($a)} ($rec1,$rec2);
-	my($greater_s,$lesser_s) = map {$_->[2]->{NOMONOS}}
-	  sort {getAbund($b) <=> getAbund($a)} ($rec1,$rec2);
-
-	for(my $pos = 0;$pos < $min_nomono_len;$pos++)
-	  {
-	    #Get the homopolymer length character for each nomonos sequence
-	    my $lenchar1 = substr($greater_n,$pos,1);
-	    my $lenchar2 = substr($lesser_n,$pos,1);
-	    if($lenchar1 ne $lenchar2)
-	      {
-		##
-		## Determine whether this homopolymer difference is "real", as
-		## it could actually be a substitution if it looks like a
-		## contiguous insertion/deletion event.  Also, we are going to
-		## consider 1. differences of more than 2 bases in a
-		## homopolymer as real and 2. differences of 1>2 and 2>1 as
-		## real.  454 tends not to make these mistakes.
-		##
-
-		my($prev_lenchar1,$prev_lenchar2);
-		if($pos > 0)
-		  {
-		    $prev_lenchar1 = substr($greater_n,($pos - 1),1);
-		    $prev_lenchar2 = substr($lesser_n,($pos - 1),1);
-		  }
-		#If there are more bases after this position
-		if(($pos + 1) < $min_nomono_len)
-		  {
-		    #If this is the first position or the previous position had
-		    #the same lengths in both the parent & child
-		    if($pos == 0 || $prev_lenchar1 eq $prev_lenchar2)
-		      {
-			my $sum1 = getCharLen($lenchar1);
-			my $sum2 = getCharLen($lenchar2);
-			my $contig_pos = $pos + 1;
-			while($contig_pos < $min_nomono_len &&
-			      substr($greater_n,$contig_pos,1) ne
-			      substr($lesser_n,$contig_pos,1))
-			  {
-			    $sum1 +=
-			      getCharLen(substr($greater_n,$contig_pos,1));
-			    $sum2 +=
-			      getCharLen(substr($lesser_n,$contig_pos,1));
-			    $contig_pos++;
-			  }
-		      }
-		    #Else we will assume that all contiguous indels are not
-		    #substitutions
-		  }
-		$numnontermindels++;
-		my $len1 = getCharLen($lenchar1);
-		my $len2 = getCharLen($lenchar2);
-		if($max_diff != 0 && abs($len1-$len2) > $max_diff)
-		  {
-		    if(!$stop_at_sub)
-		      {error("Finding substitutions in --homopolymers-mode ",
-			     "is unsupported.")}
-		    $subs++;
-		    last;
-		  }
-		if($len1 < $len2)
-		  {
-		    #Insertion relative to the more abundant sequence
-		    push(@$indels,
-			 ('homopolymer ins ' .
-			  #This constructs a string like 32AA, which means the
-			  #insertion is an AA at alignment position 32
-			  ($aln_position1 + $len1 + 1) .
-			  (substr($lesser_s,$pos,1) x abs($len1-$len2))));
-
-		    #Increment the alignment position for the greater abundant
-		    #sequence by the difference in the lengths of the current
-		    #monomers
-		    $aln_position1 += abs($len1-$len2);
-		  }
-		else
-		  {
-		    #Deletion relative to the more abundant sequence
-		    push(@$indels,
-			 ('homopolymer del ' .
-			  #This constructs a string like 32AA, which means the
-			  #deletion is an AA at alignment position 32
-			  ($aln_position2 + $len2 + 1) .
-			  (substr($greater_s,$pos,1) x abs($len1-$len2))));
-
-		    #Increment the alignment position for the lesser abundant
-		    #sequence by the difference in the lengths of the current
-		    #monomers
-		    $aln_position2 += abs($len1-$len2);
-		  }
-	      }
-	    $aln_position1 +=
-	      getCharLen(substr($greater_n,$pos,1));
-	    $aln_position2 +=
-	      getCharLen(substr($lesser_n,$pos,1));
-	  }
-
-	if($numnontermindels == 0 || $subs)
-	  {error("Expected to find only homopolymer indel differences, but ",
-		 "found no indels and $subs substitutions.  Lengths strings ",
-		 "GREATER: [$greater_n] LESSER: [$lesser_n].  NoMonos strins ",
-		 "GREATER: [$greater_s] LESSER: [$lesser_s].")}
-      }
-
-    return($numnontermindels,$subs,$indels);
-  }
 
 #Returns an array of hashes describing the indel difference between the first record (assumed to be the more abundant parent) and the second record.
 sub getHomopolDiffDescriptions
