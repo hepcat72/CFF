@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '3.0';
+my $software_version_number = '3.4';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -56,16 +56,26 @@ my $parent_sep          = ':';
 my $value_subst_str     = '__VALUE_HERE__';
 my $append_delimiter    = "Indels=$value_subst_str;";
 my $heuristic_str_size  = 11;
-my($homopolymers_only,$align_mode,$sum_abund);
-my $sum_abund_454_def   = 1;
+my($align_mode,
+   $sum_abund,
+   $long_homopol_length,
+   $max_long_hpl_diff,
+   $max_short_hpl_diff,
+   $max_long_hpl_abund,
+   $max_short_hpl_abund,
+   $homopolymers_only);
+my $homopolymers_only_def   = 0;
+my $def_long_homopol_length = 4;
+my $def_max_long_hpl_diff   = 2;
+my $def_max_long_hpl_abund  = 0;
+my $def_max_short_hpl_diff  = 1;
+my $def_max_short_hpl_abund = 1;
+my $sum_abund_pref_def  = 1;
 my $sum_abund_def       = 0;
 my $align_mode_def      = 'local';
-my $align_mode_454_def  = 'global';
-my $align_mode_hpol_def = 'pairwise';
-my $roche454_mode       = 0;  #Sets these values if they are undefined:
-                              #sum_abunds = 1, homopolymers_only = 1,
-                              #align_mode = (homopolymers_only ?
-                              #              pairwise : global)
+my $align_mode_pref_def = 'global';
+my $prefilter_mode      = 0;  #Sets sum_abund=1,homopolymers_only=1,
+                              #align_mode=global if undefined
 my $min_shifted_hits    = 1;
 my $min_direct_hits     = 1;
 my $mitigate_recips     = 0;
@@ -86,11 +96,12 @@ my $force             = 0;
 my @user_defaults     = getUserDefaults(1);
 
 my $GetOptHash =
-  {'i|input-file=s'          => sub {push(@$input_files, #REQUIRED unless <> is
+  {#File options
+   'i|input-file=s'          => sub {push(@$input_files, #REQUIRED unless <> is
 			             [sglob($_[1])])},   #         supplied
    '<>'                      => sub {push(@$input_files, #REQUIRED unless -i is
 				     [sglob($_[0])])},   #         supplied
-   'j|groupfile-suffix=s'    => \$group_suffix,          #OPTIONAL [undef]
+   'j|group-suffix=s'        => \$group_suffix,          #OPTIONAL [undef]
    'o|outfile-suffix|reals-suffix=s'
 			     => \$outfile_suffix,        #OPTIONAL [undef]
    'f|fakes-suffix=s'        => \$fakes_suffix,          #OPTIONAL [undef]
@@ -99,16 +110,22 @@ my $GetOptHash =
    'outdir=s'                => sub {push(@$outdirs,     #OPTIONAL
 				     [sglob($_[1])])},
 
-   #454 params
-   '454-mode!'               => \$roche454_mode,         #OPTIONAL [Off]
-   'align-mode=s'            => \$align_mode,            #OPTIONAL [454:global,
-				                         #     no-454:pairwise]
-   'sum-abundances!'         => \$sum_abund,             #OPTIONAL [454:on,
-				                         #     no-454:off]
+   #Basic options
+   'pre-filter-mode!'        => \$prefilter_mode,        #OPTIONAL [Off]
+   'sum-abundances!'         => \$sum_abund,             #OPTIONAL [prefilter:
+				                         #on, no-prefilter:off]
 
-   #Advanced speed-params
-   'h|homopolymer-mode!'     => \$homopolymers_only,     #OPTIONAL [454:on,
-				                         #       no-454:off]
+   #Homopolymer options
+   'h|homopolymer-mode|454-' .
+   'mode|ion-torrent-mode!'  => \$homopolymers_only,     #OPTIONAL [prefilter:
+				                         #on, no-prefilter:off]
+   'long-homopol-length=i'     => \$long_homopol_length, #OPTIONAL [4]
+   'max-long-homopol-diff=i'   => \$max_long_hpl_diff,   #OPTIONAL [2]
+   'max-long-homopol-abund=i'  => \$max_long_hpl_abund,  #OPTIONAL [0]
+   'max-short-homopol-diff=i'  => \$max_short_hpl_diff,  #OPTIONAL [1]
+   'max-short-homopol-abund=i' => \$max_short_hpl_abund, #OPTIONAL [1]
+
+   #Advanced speed options (-h above provides the fastest possible speed)
    'a|minimum-abundance=s'   => \$min_abund,             #OPTIONAL [10]
    'v|heuristic-str-size=s'  => \$heuristic_str_size,    #OPTIONAL [11]
    'heuristic-min-shifts=s'  => \$min_shifted_hits,      #OPTIONAL [1]
@@ -118,7 +135,7 @@ my $GetOptHash =
    'gigs-ram=i'              => \$gigs_ram,              #OPTIONAL [auto]
    'bases-per-gig=i'         => \$max_bases_per_gig,     #OPTIONAL [200000]
 
-   #Parsing & joining params
+   #Parsing & joining options
    'q|seq-id-pattern=s'      => \$seq_id_pattern,        #OPTIONAL
                                                          #[^\s*[>\@]\s*([^;]+)]
    'p|abundance-pattern=s'   => \$abundance_pattern,     #OPTIONAL
@@ -128,11 +145,14 @@ my $GetOptHash =
    'fakes-indel-separator=s' => \$indel_sep,             #OPTIONAL [,]
    'fakes-parent-separator=s'=> \$parent_sep,            #OPTIONAL [:]
 
-   #Muscle params
+   #Muscle options
    'y|muscle-exe=s'          => \$muscle,                #OPTIONAL [muscle]
    'use-muscle-gaps!'        => \$muscle_gaps,           #OPTIONAL [Off]
-
-   #Generic params
+   'align-mode=s'            => \$align_mode,            #OPTIONAL [prefilter:
+				                         #global, no-prefilter:
+				                         #local](global,local,
+				                         #pairwise)
+   #Generic options
    'overwrite'               => \$overwrite,             #OPTIONAL [Off]
    'skip-existing!'          => \$skip_existing,         #OPTIONAL [Off]
    'force'                   => \$force,                 #OPTIONAL [Off]
@@ -380,27 +400,73 @@ if($min_shifted_hits < 1)
     quit(6);
   }
 
-if($roche454_mode)
+if($prefilter_mode)
   {
     if(!defined($homopolymers_only))
       {$homopolymers_only = 1}
-    if(!defined($align_mode) && $homopolymers_only)
-      {$align_mode = $align_mode_hpol_def}
-    elsif(!defined($align_mode))
-      {$align_mode = $align_mode_454_def}
+    if(!defined($align_mode))
+      {$align_mode = $align_mode_pref_def}
     if(!defined($sum_abund))
-      {$sum_abund = $sum_abund_454_def}
+      {$sum_abund = $sum_abund_pref_def}
   }
 else
   {
     if(!defined($homopolymers_only))
       {$homopolymers_only = 0}
-    if(!defined($align_mode) && $homopolymers_only)
-      {$align_mode = $align_mode_hpol_def}
-    elsif(!defined($align_mode))
+    if(!defined($align_mode))
       {$align_mode = $align_mode_def}
     if(!defined($sum_abund))
       {$sum_abund = $sum_abund_def}
+  }
+
+if(!defined($long_homopol_length))
+  {$long_homopol_length = $def_long_homopol_length}
+
+if($long_homopol_length < 0)
+  {
+    error("Invalid --long-homopol-length [$long_homopol_length].  Cannot be ",
+	  "negative.");
+    quit(9);
+  }
+
+if(!defined($max_long_hpl_diff))
+  {$max_long_hpl_diff = $def_max_long_hpl_diff}
+
+if($max_long_hpl_diff < 0)
+  {
+    error("Invalid --max-long-homopol-diff [$max_long_hpl_diff].  Cannot be ",
+	  "negative.");
+    quit(10);
+  }
+
+if(!defined($max_short_hpl_diff))
+  {$max_short_hpl_diff = $def_max_short_hpl_diff}
+
+if($max_short_hpl_diff < 0)
+  {
+    error("Invalid --max-short-homopol-diff [$max_short_hpl_diff].  Cannot ",
+	  "be negative.");
+    quit(11);
+  }
+
+if(!defined($max_long_hpl_abund))
+  {$max_long_hpl_abund = $def_max_long_hpl_abund}
+
+if($max_long_hpl_abund < 0)
+  {
+    error("Invalid --max-long-homopol-abund [$max_long_hpl_abund].  Cannot ",
+	  "be negative.");
+    quit(12);
+  }
+
+if(!defined($max_short_hpl_abund))
+  {$max_short_hpl_abund = $def_max_short_hpl_abund}
+
+if($max_short_hpl_abund < 0)
+  {
+    error("Invalid --max-short-homopol-abund [$max_short_hpl_abund].  Cannot ",
+	  "be negative.");
+    quit(13);
   }
 
 if($align_mode =~ /^g/i)
@@ -449,7 +515,8 @@ foreach my $set_num (0..$#$input_file_sets)
     if(defined($fakes_suffix))
       {$fakes_outfile = $outfile_stub . $fakes_suffix}
 
-    my $seq_recs = getCheckAllSeqRecs($input_file,$min_abund);
+    my $min_nomono_len = 0;
+    my $seq_recs = getCheckAllSeqRecs($input_file,$min_abund,\$min_nomono_len);
 
     if(scalar(@$seq_recs) == 0)
       {
@@ -467,7 +534,8 @@ foreach my $set_num (0..$#$input_file_sets)
 				   $min_shifted_hits,
 				   $mitigate_recips,
 				   $min_direct_hits,
-				   $rec_hash);
+				   $rec_hash,
+				   $min_nomono_len);
 
     #Determine sequence groups differing from most abundant sequence by indels
     my $families = getIndelFamilies($rec_hash,$heur_hash);
@@ -2550,22 +2618,28 @@ Princeton, NJ 08544
 rleach\@genomics.princeton.edu
 
 * WHAT IS THIS: This script takes a sequence file with abundance values on the
-                deflines and filters out sequences deemed to be "fake".  A fake
-                sequence in this case being a sequences differing from a more
-                abundant sequence only by indels.  If -sum-abundances is
-                supplied, the abundance of the kept sequence is increased by
-                the abundance of its indel-only matches.
+                deflines and filters out lesser abundant sequences which only
+                differ from more abundant sequences by indels.  If
+                --sum-abundances is supplied, the abundance of the kept
+                sequence is increased by the abundance of its indel-only
+                matches.  In --homopolymer-mode, only homopolymer indels that
+                are likely to be the result of a sequencing error from
+                sequencing platforms such as Roche 454 FLX or Life Technologies
+                Ion Torrent will be filtered (all other homopolymer and non-
+                homopolymer indels are retained).
 
-                This script runs in 2 modes in the 'cff' (cluster free
-                filtering) pipeline (with and without the --454-mode flag).  In
-                454-mode, the script is intended to be used after mergeSeqs.pl
-                and before neighbors.pl.  When not run in 454-mode, the script
-                is intended to be used at the end of the CFF pipeline (step 7).
-                Please refer to the README for general information about the
-                cff package.
+                This script is intended to be used as the very last step in the
+                'cff' (cluster free filtering) pipeline.  However, it can also
+                be run before mergeSeqs.pl, especially if homopolymer indels
+                are a concern.  If you supply the --pre-filter-mode flag, the
+                script will set --sum-abundances to true, --homopolymer-mode to
+                true, and if --homopolymer-mode is explicitly set to false, it
+                will set --align-mode to global.  --homopolymer-mode is
+                extremely fast compared to all other modes.
 
-                This script uses a sequence alignment tool called muscle to
-                determine the existence of indels and substitutions.
+                This script, when --homopolymer-mode is not supplied, uses a
+                sequence alignment tool called muscle to determine the
+                existence of indels and substitutions.
 
 * INPUT FORMAT: A Fasta or Fastq sequence file whose deflines contain abundance
                 values.  The default format for abundance values is "size=#;"
@@ -2743,27 +2817,21 @@ sub usage
 	  {
 	    print << "end_print";
      -i|--input-file      REQUIRED Fasta/fastq sequence file(s).  See --help.
-     -o|--outfile-suffix| OPTIONAL [stdout] Outfile extension appended to -i to
-        --reals-suffix             output "real" sequences.  See --help.
+     -o|--reals-suffix    OPTIONAL [stdout] Outfile extension appended to -i to
+                                   output "real" sequences.  See --help.
      -f|--fakes-suffix    OPTIONAL [no output] Outfile extension appended to
                                    -i to output "fake" sequences.  See --help.
-     -j|--groupfile-      OPTIONAL [no output] Outfile extension appended to
-        suffix                     -i to output indel grouping information.
+     -j|--group-suffix    OPTIONAL [no output] Outfile extension appended to
+                                   -i to output indel grouping information.
                                    See --help.
-     --454-mode           OPTIONAL Adjust options for preprocessing sequencing
-                                   data containing "frequent" indel errors.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
+     --pre-filter-mode    OPTIONAL Adjust options for preprocessing sequence
+                                   data with "frequent" indel errors.
+     --sum-abundances     OPTIONAL Add abundance of filtered sequence to parent
+                                   sequence differing by indels.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
-     --quiet              OPTIONAL Quiet mode.
-     --skip-existing      OPTIONAL Skip existing output files.
-     --overwrite          OPTIONAL Overwrite existing output files.
-     --force              OPTIONAL Ignore critical errors.  Also see
-                                   --overwrite or --skip-existing.
-     --header             OPTIONAL Print a header at the top of each outfile.
-     --dry-run            OPTIONAL Run without generating output files.
      --version            OPTIONAL Print version info.
-     --use-as-default     OPTIONAL Save the command line arguments.
      --help               OPTIONAL Print info and format descriptions.
      --extended           OPTIONAL Print extended usage/help/version/header
                                    when supplied with corresponding the flags.
@@ -2818,8 +2886,8 @@ end_print
                                    Default behavior prints no out.  See
                                    --extended --help for output file format and
                                    more advanced usage examples.
-     -j|--groupfile-      OPTIONAL [no output] Outfile extension appended to
-        suffix                     -i to output indel grouping information to.
+     -j|--group-suffix    OPTIONAL [no output] Outfile extension appended to
+                                   -i to output indel grouping information to.
                                    Will not overwrite without --overwite.
                                    Explicitly supplying an empty string will
                                    use the input file name as the output file
@@ -2844,32 +2912,85 @@ end_print
                                    sequences only by indels, add the abundance
                                    of the lesser abundant sequence to the more
                                    abundant sequence.  *The default mode is
-                                   "off" unless --454-mode is provided.
-     --454-mode           OPTIONAL [Off] Sets the the following default option
-                                   values (which can be explicitly over-
-                                   ridden): `--homopolymer-mode
-                                   --sum-abundances --align-mode pairwise` in
-                                   order to prepare sequences containing
-                                   relatively frequent indel-errors for the
-                                   remainder of the CFF pipeline.  If
-                                   --homopolymer-mode is explicitly turned off,
-                                   the default --align-mode is set to 'global'.
-                                   See those options for further details.
-     -h|                  OPTIONAL [Off*] Fastest speed-up option available.
-     --homopolymer-mode            This option causes the script to only filter
-     --no-homopolymer-mode         out sequences when they differ only by
-                                   homopolymer indels.  All other sequences
-                                   which differ only by non-homopolymer indels
-                                   are not filtered out.  A homopolymer indel
-                                   is a deletion or insertion of a base or
-                                   bases that are the same as the base or bases
-                                   to either side.  454 data is prone to this
-                                   type of error and is very unlikely to
-                                   produce a non-homopolymer indel.
-                                   *This option is truned on automatically when
-                                   --454-mode is provided, but can be turned
-                                   off explicitly by providing
-                                   --no-homopolymer-mode.
+                                   "off" unless --pre-filter-mode is provided.
+     --pre-filter-mode    OPTIONAL Adjust options for preprocessing sequence
+                                   data containing "frequent" indel errors.
+                                   Unless explicitly set, it turns on
+                                   --sum-abundances, turns on
+                                   --homopolymer-mode, and sets --align-mode to
+                                   'global'.  Note, --align-mode is ignored
+                                   when --homopolymer-mode is turned on.
+     -h|                  OPTIONAL [Off*] Only filter lesser abundant sequences
+     --homopolymer-mode|           that differ only by homopolymer indels which
+     --454-mode|                   are likely to be the result of a sequencing
+     --ion-torrent-mode|           error characteristic of systems such as the
+     --no-~                        Roche 454 FLX pyrosequencer or the Life
+                                   Technologies Ion Torrent sequencer.
+                                   Sequences containing at least 1 indel deemed
+                                   to be "real" or a pair of indels which could
+                                   be interpretted as a pair of substitutions
+                                   will not be filtered.  Supplying this option
+                                   makes filtering extremely fast compared to
+                                   all other methods.  This option activates
+                                   the following options that are otherwise
+                                   ignored: --long-homopol-length,
+                                   --max-long-homopol-diff,
+                                   --max-long-homopol-abund,
+                                   --max-short-homopol-diff, and
+                                   --max-short-homopol-abund.
+                                   *Default is affected by --pre-filter-mode.
+                                   ~This option is negatable when preceded by
+                                   --no (e.g. --no-454-mode).
+     --long-homopol-      OPTIONAL [4] This is the size at and above which a
+       length                      homopolymer is considered to be "long".
+                                   When determining whether a difference in
+                                   length of homopolymers between 2 sequences
+                                   is a sequencing error or not, the shorter of
+                                   the homopolymers must be at least this
+                                   length to be considered "long".  Otherwise,
+                                   it is treated as "short".  Sequencing error
+                                   rates of long homopolymers are higher than
+                                   those of short homopolymers.  See
+                                   --max-long-homopol-diff and
+                                   --max-long-homopol-abund to see how long
+                                   homopolymer indels are filtered.  See
+                                   --max-short-homopol-diff and
+                                   --max-short-homopol-abund to see how short
+                                   homopolymer indels are filtered.
+     --max-long-homopol-  OPTIONAL [2](0,2-inf) Maximum allowed difference in
+       diff                        length of "long" homopolymers (as determined
+                                   by --long-homopol-length) in order to be
+                                   considered a homopolymer indel and filtered.
+                                   A value of 0 indicates that there is no
+                                   maximum.  Ignored unless -h is provided.
+     --max-long-homopol-  OPTIONAL [0] Maximum allowed abundance of "long"
+       abund                       homopolymers (as determined by
+                                   --long-homopol-length) in order to be
+                                   considered a homopolymer indel.  Sequencing
+                                   errors should have very low abundance
+                                   compared to other types of errors.  A value
+                                   of 0 indicates that there is no maximum.
+     --max-short-homopol- OPTIONAL [1] Maximum allowed difference in length of
+       diff                        "short" homopolymers (as determined by
+                                   --long-homopol-length) in order to be
+                                   considered a homopolymer indel and filtered.
+                                   Ignored unless -h is provided.  A value of 0
+                                   indicates that there is no maximum.
+     --max-short-homopol- OPTIONAL [1] Maximum allowed abundance of "short"
+       abund                       homopolymers (as determined by
+                                   --long-homopol-length) in order to be
+                                   considered a homopolymer indel.  Sequencing
+                                   errors should have very low abundance
+                                   compared to other types of errors.  A value
+                                   of 0 indicates that there is no maximum.
+     --max-homopol-diff   OPTIONAL [2] Maximum allowed difference in length of
+                                   homopolymer indels to be considered a 454-
+                                   introduced indel error.  Otherwise, in -h
+                                   mode, it will be skipped.  This limit causes
+                                   pairs of sequential long indels to be
+                                   substitutions (e.g. TATATAAAAAATATA versus
+                                   TATAAAAAATATATA will be considered 2
+                                   substitutions instead of 2 indels).  See -h.
      -q|--seq-id-pattern  OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
                                    expression to extract seq IDs from deflines.
                                    The ID pattern must be surrounded by
@@ -2981,7 +3102,7 @@ end_print
                                    shifted hits with any other sequence, it
                                    will be assumed to not differ by only
                                    indels.  To compare all sequences, set this
-                                   option to 0.
+                                   option to 0.  Ignored when -h is supplied.
                                    NOTE: The fastest speed-up option for this
                                    script is --homopolymer-mode, but this
                                    option is useful if that is undesireable.
@@ -3510,7 +3631,7 @@ sub clustalw2indelsSubs
 	   [$numnontermindels,$numsubs,$indels,$subs]);
   }
 
-#Globals used: $processes, $align_mode, $homopolymers_only
+#Globals used: $processes, $align_mode
 sub getIndelFamilies
   {
     my $rec_hash      = $_[0];
@@ -3528,12 +3649,19 @@ sub getIndelFamilies
 	return($families);
       }
 
-    my $split_sets = divideGroupings($heur_hash,$rec_hash);
-    alignLoadHeurHash($processes,
-		      $rec_hash,
-		      $heur_hash,
-		      $split_sets,
-		      $align_mode);
+    #If we're in homopolymer mode, the heuristic hash should already be loaded
+    #with indel descriptions, so we do not need to load it.  But if we're not
+    #in homopolymers_only mode, then we're going to need to align all the pairs
+    #of sequences and define the indel strings.
+    if(!$homopolymers_only)
+      {
+	my $split_sets = divideGroupings($heur_hash,$rec_hash);
+	alignLoadHeurHash($processes,
+			  $rec_hash,
+			  $heur_hash,
+			  $split_sets,
+			  $align_mode);
+      }
 
     verbose("Grouping into indel families.");
 
@@ -3577,6 +3705,8 @@ sub getIndelFamilies
 		my $tsize1 = getAbund($rec_hash->{$id1});
 		my $tsize2 = getAbund($rec_hash->{$id2});
 
+		next if($tsize1 == $tsize2);
+
 		$already_added->{$id2} = 1;
 
 		if(scalar(@$rec2) >= 3 && ref($rec2->[2]) eq 'HASH' &&
@@ -3610,11 +3740,12 @@ sub getIndelFamilies
 	      }
 	    elsif(defined($heur_hash->{$id1}->{$id2}))
 	      {
-		if(ref($heur_hash->{$id1}->{$id2}) eq 'ARRAY')
-		  {error("Unrecognized indel type: [",
-			 ref($heur_hash->{$id1}->{$id2}),"].")}
+		if(ref($heur_hash->{$id1}->{$id2}) ne 'ARRAY')
+		  {warning("Unrecognized indel type: [",
+			   ref($heur_hash->{$id1}->{$id2}),"].")}
 		else
-		  {error("Empty indels array.")}
+		  {error("Empty indels array for [$id1] & [$id2]: ",
+			 "[@{$heur_hash->{$id1}->{$id2}}].")}
 	      }
 	    else
 	      {debug("Heuristic is skipping [$id1] & [$id2].")
@@ -3926,10 +4057,14 @@ sub deflineAddendum
 #number to the end of each record in a hash keyed on "ORDER".
 sub getCheckAllSeqRecs
   {
-    my $input_file = $_[0];
-    my $min_abund  = $_[1];
-    my $seq_recs   = [];
-    my $seq_hash   = {};
+    my $input_file     = $_[0];
+    my $min_abund      = $_[1];
+    my $min_nomono_ref = $_[2];
+    my $seq_recs       = [];
+    my $seq_hash       = {};
+
+    if(!defined($$min_nomono_ref))
+      {$$min_nomono_ref = 0}
 
     openIn(*INPUT,$input_file) || return($seq_recs);
 
@@ -4015,13 +4150,37 @@ sub getCheckAllSeqRecs
 
 	next if($abund < $min_abund);
 
-	my $nomono_seq = $seq;
+	my $nomono_seq = uc($seq);
 	$nomono_seq =~ s/(.)\1*(?=\1)//g;
 	my $nomono_len = length($nomono_seq);
+	my $nomono_lens = '';
+	while($seq =~ /((.)\2*)/ig)
+	  {
+	    my $nts = $1;
+	    my $ntslen = length($nts);
+	    debug("Processing nucleotides [$nts] of length [$ntslen].")
+	      if($DEBUG > 5);
+	    #Append a character representing the number of bases
+	    $nomono_lens .= getLenChar($ntslen);
+	  }
 
-	push(@$seq_recs,[$def,$seq,{ORDER=>$cnt,ID=>$id,ABUND=>$abund,
-				    NOMONOS=>$nomono_seq,
-				    NOMONOL=>$nomono_len}]);
+	debug("NoMonos lengths string: [$nomono_lens].") if($DEBUG > 1);
+
+	if($$min_nomono_ref == 0 || $$min_nomono_ref > $nomono_len)
+	  {$$min_nomono_ref = $nomono_len}
+
+	#ORDER is an integer to use to sort to get back the original file order
+	#ID is the ID parsed from the defline
+	#ABUND is the sequence abundance parsed from the defline
+	#NOMONOS is the sequence after extracting all homopolymer repeats
+	#NOMONOC is a string of ascii characters indicating homopolymer lengths
+	#NOMONOL is the sequence length after homopolymer repeat extraction
+	push(@$seq_recs,[$def,$seq,{ORDER   => $cnt,
+				    ID      => $id,
+				    ABUND   => $abund,
+				    NOMONOS => $nomono_seq,
+				    NOMONOC => $nomono_lens,
+				    NOMONOL => $nomono_len}]);
       }
 
     closeIn(*INPUT);
@@ -4709,11 +4868,105 @@ sub getComparisons
     my $mitigate_recips  = defined($_[3]) ? $_[3] : 1;
     my $min_direct_hits  = defined($_[4]) ? $_[4] : 0;
     my $rec_hash         = $_[5];
+    my $min_nomono_len   = $_[6];
 
     my $hash = {}; #$hash->{seqseg}->{position}->{R,F}->{ID} = 1
-    my $hits = {}; #$hits->{ID1}->{ID2}->{D,S,R} = $cnt (D=Direct,
-                   #S=shifted,R=deletion w/ possible reciprocal insertion)
+    my $hits = {}; #$hits->{ID1}->{ID2}->{S,R} = $cnt
+                   #(S=shifted,R=deletion w/ possible reciprocal insertion)
 
+    #If we're only doing homopolymers OR the heuristic is turned on (i.e. "AND
+    #we're not doing every possible comparison")
+    if($homopolymers_only || $str_size)
+      {
+	my $nomono_hash = getNoMonosHash($rec_hash,$min_nomono_len);
+	my $kcnt = 0;
+	my $ktot = scalar(keys(%$nomono_hash));
+	#For every nomono string with more than one sequence ID
+	foreach my $nomono_key (grep {scalar(keys(%{$nomono_hash->{$_}})) > 1}
+				keys(%$nomono_hash))
+	  {
+	    verboseOverMe("Determining comparisons... ",
+			  int(100*$kcnt/$ktot),'% done.')
+	      if($homopolymers_only);
+	    $kcnt++;
+
+	    my @allids = keys(%{$nomono_hash->{$nomono_key}});
+	    #Load all combos into the hits hash
+	    for(my $i = 0;$i < (scalar(@allids) - 1);$i++)
+	      {
+		my $id1 = $allids[$i];
+		for(my $j = $i + 1;$j < scalar(@allids);$j++)
+		  {
+		    my $id2 = $allids[$j];
+
+		    my($first,$second) =
+		      sort {getAbund($rec_hash->{$b}) <=>
+			      getAbund($rec_hash->{$a})} ($id1,$id2);
+
+		    next if(getAbund($rec_hash->{$first}) ==
+			    getAbund($rec_hash->{$second}));
+
+		    #We're only going to let homopolymer indels through here
+		    #whether we're in homopolymer mode or not.  This is a
+		    #shortcut to allow us to find somethings quickly
+		    next if(noMonosDiffer($rec_hash->{$first},
+					  $rec_hash->{$second}));
+
+		    debug("Comparison found using nomono length ",
+			  "[$min_nomono_len]: $first vs $second:\n",
+			  "$rec_hash->{$first}->[2]->{NOMONOS}\n",
+			  "$rec_hash->{$second}->[2]->{NOMONOS}")
+		      if($homopolymers_only);
+
+		    #Just because the NoMonos strings are the same, doesn't
+		    #necessarily mean that the two sequences only differ by
+		    #indels.  Substitutions can be interpreted as a combination
+		    #insertion/deletion if the nucleotide being substituted is
+		    #the same as one of its neighbors and is changed to its
+		    #other neighbor.  Now that we have all the combinations of
+		    #sequences which have the same nomonos string, we need to
+		    #determine whether it's a 454 indel
+		    my $indels_array = [only454Indels($rec_hash->{$first},
+						      $rec_hash->{$second})];
+		    if(scalar(@$indels_array) == 0)
+		      {next}
+
+		    #Every sequence pair that is not considered to differ by
+		    #only 454 indel errors has at least 1 real indel or differs
+		    #by likely substitutions.  Ideally, we would save the
+		    #substitution occurrences so that we wouldn't compare these
+		    #later (when not in homopolymers_only mode.
+
+		    #If we're in homopolymer mode, we're going to pre-load the
+		    #heuristic hash (i.e. hits hash) with the indels array
+		    if($homopolymers_only)
+		      {$hits->{$first}->{$second} = $indels_array}
+		    else
+		      {
+			#We know the sequences only differ by
+			#homopolymer indels, so let's set it to the minimum
+			#required number of shifted hits and force them to be
+			#compared.
+			$hits->{$first}->{$second}->{S} = $min_shifted_hits;
+		      }
+		  }
+	      }
+	  }
+
+	#We don't need the nomonohash anymore, so let's free up memory
+	undef($nomono_hash);
+      }
+
+    #If we are only doing homopolymers, we're done.  Otherwise, we're going to
+    #keep what we've found so far and continue on to try and find other types
+    #of indels.
+    if($homopolymers_only)
+      {
+	verbose("Comparison reduction done.");
+	return($hits);
+      }
+
+    #If we're not using a heuristic, compare every sequence combo
     if($str_size == 0)
       {
 	for(my $i = 0;$i < (scalar(@$recs) - 1);$i++)
@@ -5181,7 +5434,7 @@ sub alignLoadHeurHash
     my $all_outers = 0;
     $all_outers += scalar(@$_) foreach(@$split_sets);
     my $status_str = '';
-    my $progress_str = 'Overall progress: [0%]';
+    my $progress_str = 'Overall prog: [0%]';
     my $child_status_str = '';
 
     my $nprocs = {};
@@ -5401,7 +5654,7 @@ sub alignLoadHeurHash
 		else
 		  {
 		    $line =~ s/[\r\n]//g;
-		    $child_status_str = $line . '  ALIGNMENT(' . int($fhi/2) .
+		    $child_status_str = $line . '  JOB(' . int($fhi/2) .
 		      ')';
 		    verboseOverMe("$status_str  $progress_str  ",
 				  $child_status_str);
@@ -5409,10 +5662,10 @@ sub alignLoadHeurHash
 	      }
 	    elsif($line =~ /^([^\t]*)\t([^\t]*)\t([^\t]*)$/)
 	      {
-		debug("READING: [$line]") if($DEBUG > 2);
 		my $first  = $1;
 		my $second = $2;
 		my $indels = $3;
+		debug("READING: [$1 $2 $3]") if($DEBUG > 2);
 		unless(exists($seen->{$first}))
 		  {
 		    $outers_count++;
@@ -5424,10 +5677,10 @@ sub alignLoadHeurHash
 		  {$heur_hash->{$first}->{$second} = [split(/,/,$indels)]}
 	      }
 	    else
-	      {error("Internal parse error.")}
+	      {error("Internal parse error.  Could not parse line: [$line].")}
 	  }
 
-	$progress_str = "Overall progress: [" .
+	$progress_str = "Overall prog: [" .
 	  (int(10000 * $outers_count / $all_outers)/100) . '%]';
 	verboseOverMe("$status_str  $progress_str  $child_status_str");
       }
@@ -5678,7 +5931,7 @@ sub mergeMuscleAlignments
 #a system call.  This subroutine catches that output and any status output on
 #stderr and prints all pairs (with indel info) on standard out and status
 #messages on standard error, which the parent process catches and processes.
-#Globals used: $muscle_gaps
+#Globals used: $muscle_gaps, $homopolymers_only
 sub alignPrintIndelPairs
   {
     my $split_set  = $_[0];
@@ -5688,7 +5941,9 @@ sub alignPrintIndelPairs
     my $split_mode = $_[4];
     my $aln_strs   = {};
 
-    if($align_mode eq 'global')
+    #The check on homopolymers_only is outdated and should be removed, because
+    #you can no longer get here in homopolymer mode
+    if(!$homopolymers_only && $align_mode eq 'global')
       {
 	my $line_num     = 0;
 	my $verbose_freq = 1000;
@@ -5718,14 +5973,39 @@ sub alignPrintIndelPairs
     my $saved_handle = select();
     select(STDOUT) unless($saved_handle eq *STDOUT);
 
-    #For each first ID in order of descending abundance and ascending ID
-    foreach my $id1 (@$split_set)
-      {
-	my $rec1 = $rec_hash->{$id1};
+    my $done_hash     = {};
+    my $tmp_done_hash = {};
 
+    #For each first ID in order of descending abundance and ascending ID
+    foreach my $id1 (sort {getAbund($rec_hash->{$b}) <=>
+			     getAbund($rec_hash->{$a})} @$split_set)
+      {
+	#If this ID was added as a child of an earlier ID, it cannot have any
+	#children, so skip it.
+	if(exists($done_hash->{$id1}))
+	  {
+	    print(join("\n",map {"$id1\t$_\t"} keys(%{$heur_hash->{$id1}})),
+		  "\n");
+	    next;
+	  }
+
+	#Update the done hash with what was added on the last iteration
+	if(scalar(keys(%$tmp_done_hash)))
+	  {
+	    foreach(keys(%$tmp_done_hash))
+	      {
+		$done_hash->{$_} = 1;
+		delete($tmp_done_hash->{$_});
+	      }
+	  }
+
+	my $rec1      = $rec_hash->{$id1};
 	my $diff_hash = {};
 	my $alnstr    = '';
-	if($align_mode eq 'global' && !exists($aln_strs->{$id1}))
+	#The check on homopolymers_only is outdated and should be removed,
+	#because you can no longer get here in homopolymer mode
+	if(!$homopolymers_only &&
+	   $align_mode eq 'global' && !exists($aln_strs->{$id1}))
 	  {
 	    error("Outer ID [$id1] was not found in the alignment string ",
 		  "hash though it should have been there.  It is ",
@@ -5733,16 +6013,28 @@ sub alignPrintIndelPairs
 		  "in the split set.");
 	    next;
 	  }
-	elsif($align_mode eq 'local')
+	#The check on homopolymers_only is outdated and should be removed,
+	#because you can no longer get here in homopolymer mode
+	elsif(!$homopolymers_only && $align_mode eq 'local')
 	  {
+	    my @remaining_ids = sort {$rec_hash->{$b}->[2]->{ABUND} <=>
+					$rec_hash->{$a}->[2]->{ABUND} ||
+					  $a cmp $b}
+	      grep {!exists($done_hash->{$_})}
+		keys(%{$heur_hash->{$id1}});
+
+	    if(scalar(@remaining_ids) != scalar(keys(%{$heur_hash->{$id1}})))
+	      {print(join("\n",map {"$id1\t$_\t"}
+			  grep {exists($done_hash->{$_})}
+			  keys(%{$heur_hash->{$id1}})),"\n")}
+
+	    next if(scalar(@remaining_ids) == 0);
+
 	    if($split_mode)
 	      {$aln_strs =
 		 splitStitchAlignAndHash($rec_hash,
 					 [$id1,
-					  sort {$rec_hash->{$b}->[2]->{ABUND}
-						  <=> $rec_hash->{$a}->[2]
-						    ->{ABUND} || $a cmp $b}
-					  keys(%{$heur_hash->{$id1}})])}
+					  @remaining_ids])}
 	    else
 	      {
 		my $alignment_str =
@@ -5750,31 +6042,38 @@ sub alignPrintIndelPairs
 					     $muscle_gaps,
 					     0,
 					     ($id1,
-					      sort {$rec_hash->{$b}->[2]
-						      ->{ABUND}
-							<=> $rec_hash->{$a}
-							  ->[2]->{ABUND} ||
-							    $a cmp $b}
-					      keys(%{$heur_hash->{$id1}})));
+					      @remaining_ids));
 
 		$aln_strs = hashAlignment($alignment_str);
 	      }
 	  }
 
-	foreach my $id2 (keys(%{$heur_hash->{$id1}}))
+	foreach my $id2 (grep {!exists($done_hash->{$_})}
+			 keys(%{$heur_hash->{$id1}}))
 	  {
 	    my $rec2 = $rec_hash->{$id2};
 
 	    #$indels is an array of strings describing each indel
-	    my($numnontermindels,$numsubs,$indels) =
-	      ($align_mode eq 'local' || $align_mode eq 'global' ?
-	       clustalw2indelsSubs($aln_strs->{$id1} . $aln_strs->{$id2},1) :
-	       clustalw2indelsSubs(getMuscleAlignment($rec1->[1],
-						      $rec2->[1],
-						      $muscle_gaps)));
+	    my($numnontermindels,$numsubs,$indels);
+
+	    #The check on homopolymers_only is outdated and should be removed,
+	    #because you can no longer get here in homopolymer mode - this will
+	    #always be false
+	    if($homopolymers_only)
+	      {($numnontermindels,$numsubs,$indels) = getHomoPolDiffs($rec1,
+								      $rec2)}
+	    else
+	      {($numnontermindels,$numsubs,$indels) =
+		 ($align_mode eq 'local' || $align_mode eq 'global' ?
+		  clustalw2indelsSubs($aln_strs->{$id1} . $aln_strs->{$id2},
+				      1) :
+		  clustalw2indelsSubs(getMuscleAlignment($rec1->[1],
+							 $rec2->[1],
+							 $muscle_gaps)))}
 
 	    if($numsubs == 0 && $numnontermindels)
 	      {
+		$tmp_done_hash->{$id2} = 1;
 		verbose("$id1 & $id2 have $numnontermindels indels and ",
 			"$numsubs substitutions.");
 		#$heur_hash->{$id1}->{$id2} = $indels;
@@ -5782,6 +6081,11 @@ sub alignPrintIndelPairs
 	      }
 	    else
 	      {
+		#The check on homopolymers_only is outdated and should be
+		#removed, because you can no longer get here in homopolymer
+		#mode - this debug will never print
+		debug("$id1 & $id2 have $numnontermindels indels and ",
+		      "$numsubs substitutions.") if($homopolymers_only);
 		#$heur_hash->{$id1}->{$id2} = undef;
 		print("$id1\t$id2\t\n");
 	      }
@@ -6108,4 +6412,576 @@ sub meetMinDirectsRule
 	  "$seq2");
 
     return(0);
+  }
+
+sub getNoMonosHash
+  {
+    my $rec_hash       = $_[0];
+    my $min_nomono_len = $_[1];
+
+    my $nomonos_hash = {};
+
+    foreach my $key (keys(%$rec_hash))
+      {$nomonos_hash->{substr($rec_hash->{$key}->[2]->{NOMONOS},
+			      0,$min_nomono_len)}->{$key} = 0}
+
+    return($nomonos_hash);
+  }
+
+#Returns a single character indicating the size of a submitted integer (max 94)
+#Lengths larger than 94 will be modulus'ed.  These numbers will be used to
+#compare strings expected to only differ by a little bit, so it's very unlikely
+#this will be a problem.  It is also assumed that the input value will not be
+#0.
+sub getLenChar
+  {
+    if($_[0] > 94)
+      {warning("Long homopolymer stretch detected.  Could cause problems.")}
+    debug("Returning [",(chr(31 + ($_[0] % 95))),"] for length [$_[0]].")
+      if($DEBUG > 5);
+    return(chr(31 + ($_[0] % 95)));
+  }
+
+#Returns an integer length value from an ascii-encoded single character
+sub getCharLen
+  {return(ord($_[0]) - 31)}
+
+#Returns the same as clustalw2indelsSubs ($numnontermindels,$numsubs,$indels)
+#which are int, int, & a reference to an array of strings
+#Uses the NOMONO values stored in each record to determine the homopolymer
+#differences.  Differences are reported relative to the more abundant sequence
+#and the positions of the differences are alignment positions.  If the
+#difference in length of a homopolymer indel is greater than max_diff, it
+#stops, sets subs to 1 and returns what it has gotten thus far.  Support for
+#counting substitutions and handling homopolymer differences as substitutions
+#when max_diff is 0 is not yet implemented.
+#Globals used: $max_long_hpl_diff
+sub getHomoPolDiffs
+  {
+    error("This subroutine is outdated.  The fact that it has been called is an error.");
+
+    #($numnontermindels,$numsubs,$indels)
+    my $rec1        = $_[0];
+    my $rec2        = $_[1];
+    my $stop_at_sub = defined($_[2]) ? $_[2] : 1;
+    my $max_diff    = defined($max_long_hpl_diff) ? $max_long_hpl_diff : 2;
+
+    my $numnontermindels = 0;
+    my $subs             = 0;
+    my $indels           = [];
+
+    if(noMonosDiffer($rec1,$rec2))
+      {
+	$subs = 1;
+	if(!$stop_at_sub)
+	  {error("Finding substitutions in --homopolymers-mode is ",
+		 "unsupported.")}
+      }
+    else
+      {
+	my $aln_position1    = 0;
+	my $aln_position2    = 0;
+	my $min_nomono_len   = $rec1->[2]->{NOMONOL} < $rec2->[2]->{NOMONOL} ?
+	  $rec1->[2]->{NOMONOL} : $rec2->[2]->{NOMONOL};
+
+	#This will sort by decreasing abundance
+	my($greater_n,$lesser_n) = map {$_->[2]->{NOMONOC}}
+	  sort {getAbund($b) <=> getAbund($a)} ($rec1,$rec2);
+	my($greater_s,$lesser_s) = map {$_->[2]->{NOMONOS}}
+	  sort {getAbund($b) <=> getAbund($a)} ($rec1,$rec2);
+
+	for(my $pos = 0;$pos < $min_nomono_len;$pos++)
+	  {
+	    #Get the homopolymer length character for each nomonos sequence
+	    my $lenchar1 = substr($greater_n,$pos,1);
+	    my $lenchar2 = substr($lesser_n,$pos,1);
+	    if($lenchar1 ne $lenchar2)
+	      {
+		##
+		## Determine whether this homopolymer difference is "real", as
+		## it could actually be a substitution if it looks like a
+		## contiguous insertion/deletion event.  Also, we are going to
+		## consider 1. differences of more than 2 bases in a
+		## homopolymer as real and 2. differences of 1>2 and 2>1 as
+		## real.  454 tends not to make these mistakes.
+		##
+
+		my($prev_lenchar1,$prev_lenchar2);
+		if($pos > 0)
+		  {
+		    $prev_lenchar1 = substr($greater_n,($pos - 1),1);
+		    $prev_lenchar2 = substr($lesser_n,($pos - 1),1);
+		  }
+		#If there are more bases after this position
+		if(($pos + 1) < $min_nomono_len)
+		  {
+		    #If this is the first position or the previous position had
+		    #the same lengths in both the parent & child
+		    if($pos == 0 || $prev_lenchar1 eq $prev_lenchar2)
+		      {
+			my $sum1 = getCharLen($lenchar1);
+			my $sum2 = getCharLen($lenchar2);
+			my $contig_pos = $pos + 1;
+			while($contig_pos < $min_nomono_len &&
+			      substr($greater_n,$contig_pos,1) ne
+			      substr($lesser_n,$contig_pos,1))
+			  {
+			    $sum1 +=
+			      getCharLen(substr($greater_n,$contig_pos,1));
+			    $sum2 +=
+			      getCharLen(substr($lesser_n,$contig_pos,1));
+			    $contig_pos++;
+			  }
+		      }
+		    #Else we will assume that all contiguous indels are not
+		    #substitutions
+		  }
+		$numnontermindels++;
+		my $len1 = getCharLen($lenchar1);
+		my $len2 = getCharLen($lenchar2);
+		if($max_diff != 0 && abs($len1-$len2) > $max_diff)
+		  {
+		    if(!$stop_at_sub)
+		      {error("Finding substitutions in --homopolymers-mode ",
+			     "is unsupported.")}
+		    $subs++;
+		    last;
+		  }
+		if($len1 < $len2)
+		  {
+		    #Insertion relative to the more abundant sequence
+		    push(@$indels,
+			 ('homopolymer ins ' .
+			  #This constructs a string like 32AA, which means the
+			  #insertion is an AA at alignment position 32
+			  ($aln_position1 + $len1 + 1) .
+			  (substr($lesser_s,$pos,1) x abs($len1-$len2))));
+
+		    #Increment the alignment position for the greater abundant
+		    #sequence by the difference in the lengths of the current
+		    #monomers
+		    $aln_position1 += abs($len1-$len2);
+		  }
+		else
+		  {
+		    #Deletion relative to the more abundant sequence
+		    push(@$indels,
+			 ('homopolymer del ' .
+			  #This constructs a string like 32AA, which means the
+			  #deletion is an AA at alignment position 32
+			  ($aln_position2 + $len2 + 1) .
+			  (substr($greater_s,$pos,1) x abs($len1-$len2))));
+
+		    #Increment the alignment position for the lesser abundant
+		    #sequence by the difference in the lengths of the current
+		    #monomers
+		    $aln_position2 += abs($len1-$len2);
+		  }
+	      }
+	    $aln_position1 +=
+	      getCharLen(substr($greater_n,$pos,1));
+	    $aln_position2 +=
+	      getCharLen(substr($lesser_n,$pos,1));
+	  }
+
+	if($numnontermindels == 0 || $subs)
+	  {error("Expected to find only homopolymer indel differences, but ",
+		 "found no indels and $subs substitutions.  Lengths strings ",
+		 "GREATER: [$greater_n] LESSER: [$lesser_n].  NoMonos strins ",
+		 "GREATER: [$greater_s] LESSER: [$lesser_s].")}
+      }
+
+    return($numnontermindels,$subs,$indels);
+  }
+
+#Returns an array of hashes describing the indel difference between the first record (assumed to be the more abundant parent) and the second record.
+sub getHomopolDiffDescriptions
+  {
+    #You can supply 2 sequence objects or 4 strings (sequences and nomono strs)
+    #Can accept a sequence object (reference to an array) or a sequence string
+    #ONLY SUPPLY 2 sequence records - all other
+    my $seq1   = ref($_[0]) eq 'ARRAY' ? $_[0]->[2]->{NOMONOC} : $_[0];
+    my $seq2   = ref($_[1]) eq 'ARRAY' ? $_[1]->[2]->{NOMONOC} : $_[1];
+    my $nmseq1 = ref($_[0]) eq 'ARRAY' ? $_[0]->[2]->{NOMONOS} : $_[2];
+    my $nmseq2 = ref($_[1]) eq 'ARRAY' ? $_[1]->[2]->{NOMONOS} : $_[3];
+
+    my $len    = $_[4] ?                       #INTERNAL - DO NOT SUPPLY
+      $_[4] : (length($seq1) < length($seq2) ?
+	       length($seq1) : length($seq2));
+    my $pos    = $_[5] ? $_[5] : 1;            #INTERNAL - DO NOT SUPPLY
+    my $rec1   = ref($_[0]) eq 'ARRAY' ? $_[0] : $_[6];
+    my $rec2   = ref($_[1]) eq 'ARRAY' ? $_[1] : $_[7];
+
+    #Error-check length
+    if(length($seq2) != $len || length($seq1) != $len)
+      {
+	$seq1   = substr($seq1,0,$len);
+	$seq2   = substr($seq2,0,$len);
+	$nmseq1 = substr($nmseq1,0,$len);
+	$nmseq2 = substr($nmseq2,0,$len);
+      }
+
+    debug("getHomopolDiffDescriptions called with\n\t$seq1\n\t$seq2\n\t",
+	  "$nmseq1\n\t$nmseq2\n\tLENGTH $len\n\tPOSITION $pos");
+
+    if($len == 1)
+      {
+	debug("Length is 1 - returning.");
+	if($seq1 ne $seq2)
+	  {return([{POS              => $pos,
+		    PARENTMONOMER    => ($nmseq1 x getCharLen($seq1)),
+		    CHILDMONOMER     => ($nmseq2 x getCharLen($seq2)),
+		    PARENTMONOMERLEN => getCharLen($seq1),
+		    CHILDMONOMERLEN  => getCharLen($seq2),
+		    SHORTER          => (getCharLen($seq1) <
+					 getCharLen($seq2) ?
+					 getCharLen($seq1) :
+					 getCharLen($seq2)),
+		    PARENTREDUCLEN   => $rec1->[2]->{NOMONOL},
+		    CHILDREDUCLEN    => $rec2->[2]->{NOMONOL},
+		    CHILDABUND       => getAbund($rec2)}])}
+	else
+	  {return([])}
+      }
+
+    my $halflen = int($len/2);
+
+    #Split the sequences into 2 halves
+    my($lseq1,$rseq1)     = unpack("a$halflen".'a*',$seq1);
+    my($lseq2,$rseq2)     = unpack("a$halflen".'a*',$seq2);
+    my($nmlseq1,$nmrseq1) = unpack("A$halflen".'A*',$nmseq1);
+    my($nmlseq2,$nmrseq2) = unpack("A$halflen".'A*',$nmseq2);
+
+    my $eql = ($lseq1 eq $lseq2);
+    my $eqr = ($rseq1 eq $rseq2);
+
+    #If only 1 side is different
+    if($eql != $eqr)
+      {
+	debug("One side is the same.");
+	#If the left sides are the same
+	if($eql)
+	  {return(getHomopolDiffDescriptions($rseq1,
+					     $rseq2,
+					     $nmrseq1,
+					     $nmrseq2,
+					     $halflen + ($len % 2),
+					     $halflen + $pos,
+					     $rec1,
+					     $rec2))}
+	else
+	  {return(getHomopolDiffDescriptions($lseq1,
+					     $lseq2,
+					     $nmlseq1,
+					     $nmlseq2,
+					     $halflen,
+					     $pos,
+					     $rec1,
+					     $rec2))}
+      }
+    elsif(!$eql && !$eqr)
+      {
+	debug("Both sides are different.");
+	my $right_diffs = getHomopolDiffDescriptions($rseq1,
+						     $rseq2,
+						     $nmrseq1,
+						     $nmrseq2,
+						     $halflen + ($len % 2),
+						     $halflen + $pos,
+						     $rec1,
+						     $rec2);
+	my $left_diffs = getHomopolDiffDescriptions($lseq1,
+						    $lseq2,
+						    $nmlseq1,
+						    $nmlseq2,
+						    $halflen,
+						    $pos,
+						    $rec1,
+						    $rec2);
+        if(scalar(@$left_diffs) && scalar(@$right_diffs))
+          {
+	    debug("Got descriptions back from both sides.");
+	    return([@$left_diffs,@$right_diffs]);
+	  }
+        elsif(scalar(@$left_diffs))
+          {
+	    debug("Just got descriptions back from the left side.");
+	    return($left_diffs);
+	  }
+        elsif(scalar(@$right_diffs))
+          {
+	    debug("Just got descriptions back from the right side.");
+	    return($right_diffs);
+	  }
+	debug("Neither side returned descriptions.");
+	return([]);
+      }
+
+    debug("Both sides are the same.");
+
+    return([]);
+  }
+
+#This determines if the homopolymer differences are likely to be 454 errors
+#Takes a reference to an array of hash references describing indels between two
+#Returns an array of indel descriptions - populated if all are 454 indel errors
+#and empty if at least 1 indel is not a 454 indel error
+#sequences (created by getHomopolDiffDescriptions)
+sub only454Indels
+  {
+    my $rec1 = $_[0];
+    my $rec2 = $_[1];
+    my $monomer_diffs_array = getHomopolDiffDescriptions($rec1,$rec2);
+                                     #Returned array looks like this:
+                                     #[{POS=>#,PARENTMONOMER=>N,
+                                     #  CHILDMONOMER=>N,PARENTMONOMERLEN=>#,
+                                     #  CHILDMONOMERLEN=>#,SHORTER=>#,
+                                     #  CHILDREDUCLEN=>#,PARENTREDUCLEN=>#},
+                                     #  CHILDABUND=>#,...]
+
+    debug("Comparing records: [$rec1->[0]] and [$rec2->[0]]: seqs: ",
+	  "[$rec1->[1]] and [$rec2->[1]].\n",
+	  "CHECKING HPOL DESCRIPTIONS: ",
+	  join(';',map {join(',',%{$_})} @$monomer_diffs_array))
+      if($DEBUG > 2);
+
+    my @four54_errors = ();
+
+    for(my $i = 0;$i < scalar(@$monomer_diffs_array);$i++)
+      {
+        #The last reduced string position should not be considered for possibly
+        #being an indel because it's been artificially chopped.
+        last if(abs($monomer_diffs_array->[$i]->{CHILDREDUCLEN} -
+                    $monomer_diffs_array->[$i]->{PARENTREDUCLEN}) <= 1 &&
+                ($monomer_diffs_array->[$i]->{POS} >=
+		 $monomer_diffs_array->[$i]->{CHILDREDUCLEN} ||
+		 $monomer_diffs_array->[$i]->{POS} >=
+		 $monomer_diffs_array->[$i]->{PARENTREDUCLEN}));
+
+        my $nxt = (($i + 1) < scalar(@$monomer_diffs_array) ?
+          $monomer_diffs_array->[$i + 1] : undef);
+
+        if(!is454Indel($monomer_diffs_array->[$i],$nxt))
+          {
+	    debug("Hash index [$i] indicates real indel or substitution ",
+		  "(i.e. is NOT a 454 indel)") if($DEBUG > 2);
+	    return(());
+	  }
+        #else Indel looks like 454 error, so continue checking
+
+	#Save the indel as a string in the output format (eg homopolymer del A)
+	my $char = substr($monomer_diffs_array->[$i]->{PARENTMONOMER},0,1);
+	my $diff = abs($monomer_diffs_array->[$i]->{PARENTMONOMERLEN} -
+		       $monomer_diffs_array->[$i]->{CHILDMONOMERLEN});
+	my $str  = $char x $diff;
+	my $pos = getRealIndelPos($rec1,
+				  $rec2,
+				  $monomer_diffs_array->[$i]->{POS});
+	push(@four54_errors,
+	     'homopolymer ' .
+	     ($monomer_diffs_array->[$i]->{PARENTMONOMERLEN} >
+	      $monomer_diffs_array->[$i]->{CHILDMONOMERLEN} ? 'del' : 'ins') .
+	     " $pos$str");
+
+	debug("Indel [$i] is a 454 indel apparently.  Next neighbor ",
+	      (defined($nxt) ? "was defined" : "was NOT defined"))
+	  if($DEBUG > 2);
+      }
+
+    debug("Only differs by 454 indel errors") if($DEBUG > 2);
+
+    return(@four54_errors);
+  }
+
+#Determines whether an indel is likely a 454 error.  Uses the next indel to
+#help make that determination
+#Takes the hash describing indels between two sequences for the indel being
+#decided on and the next indel following it
+#Returns true or false (1 or 0 respectively)
+#Globals used: $long_homopol_length, $max_long_hpl_diff, $max_short_hpl_diff,
+#$max_long_hpl_abund, $max_short_hpl_abund
+sub is454Indel
+  {
+    my $cur_info = $_[0];
+    my $nxt_info = $_[1];
+
+    my $shortest_min         = $long_homopol_length;
+    my $max_len_diff         = $max_long_hpl_diff;
+    my $singlet_max_len_diff = $max_short_hpl_diff;
+    my $long_max_abund       = $max_long_hpl_abund;
+    my $short_max_abund      = $max_short_hpl_abund;
+
+    my $cur_diff =
+      abs($cur_info->{PARENTMONOMERLEN} - $cur_info->{CHILDMONOMERLEN});
+    my $nxt_diff = defined($nxt_info) ? abs($nxt_info->{PARENTMONOMERLEN} -
+                                            $nxt_info->{CHILDMONOMERLEN}) : 0;
+    my $cur_type =
+      ($cur_info->{PARENTMONOMERLEN} < $cur_info->{CHILDMONOMERLEN} ?
+       'ins' : 'del');
+    my $nxt_type =
+      (defined($nxt_info) ? ($nxt_info->{PARENTMONOMERLEN} <
+			     $nxt_info->{CHILDMONOMERLEN} ? 'ins' : 'del') :
+       '');
+
+    my $dbg_msg = join('',"if((cur_info->{POS} < (cur_info->{PARENTREDUCLEN} ",
+		       "- 2) || cur_info->{POS} < (cur_info->{CHILDREDUCLEN} ",
+		       "- 2)) && ((cur_info->{SHORTER} >= shortest_min && ",
+		       "(long_max_abund == 0 || (exists(cur_info->{CHILDABUND",
+		       "}) && cur_info->{CHILDABUND} <= long_max_abund)) && (",
+		       "((max_len_diff == 0 || cur_diff <= max_len_diff) && ",
+		       "cur_diff > 1 &&!(defined(nxt_info) && cur_type ne ",
+		       "nxt_type && cur_diff == nxt_diff && cur_diff == 2 && ",
+		       "(cur_info->{POS} + 1) == nxt_info->{POS})) || (",
+		       "cur_diff == 1 &&!(defined(nxt_info) && cur_type ne ",
+		       "nxt_type && nxt_diff == 1 && ((cur_info->{POS} + 2) ",
+		       "== nxt_info->{POS} || (cur_info->{POS} + 1) == ",
+		       "nxt_info->{POS}))))) ||(cur_info->{SHORTER} < ",
+		       "shortest_min && (cur_diff <= singlet_max_len_diff || ",
+		       "singlet_max_len_diff == 0) && (short_max_abund == 0 ",
+		       "|| (exists(cur_info->{CHILDABUND}) && cur_info->{",
+		       "CHILDABUND} <= short_max_abund)) && (!(defined(",
+		       "nxt_info) && cur_type ne nxt_type && cur_diff == 1 ",
+		       "&& nxt_diff == 1 && (cur_info->{POS} + 1) == ",
+		       "nxt_info->{POS}) && !(defined(nxt_info) && cur_type ",
+		       "ne nxt_type && cur_diff == 1 && nxt_diff == 1 && (",
+		       "cur_info->{POS} + 2) == nxt_info->{POS})))))\n",
+
+		       "if(($cur_info->{POS} < ($cur_info->{PARENTREDUCLEN} ",
+		       "- 2) || $cur_info->{POS} < (",
+		       "$cur_info->{CHILDREDUCLEN}  - 2)) && ((",
+		       "$cur_info->{SHORTER} >= $shortest_min && (",
+		       "$long_max_abund == 0 || (",
+		       exists($cur_info->{CHILDABUND}),
+		       " && $cur_info->{CHILDABUND} <= $long_max_abund)) && ",
+		       "((($max_len_diff == 0 || $cur_diff <= $max_len_diff) ",
+		       "&& $cur_diff > 1 &&!(",
+		       defined($nxt_info)," && $cur_type ne ",
+		       (defined($nxt_type) ? $nxt_type : 'undef'),
+		       " && $cur_diff == ",
+		       (defined($nxt_diff) ? $nxt_diff : 'undef'),
+		       " && $cur_diff == 2 && ($cur_info->{POS} + 1) == ",
+		       (defined($nxt_info) ? $nxt_info->{POS} : 'undef'),
+		       ")) || ($cur_diff == 1 && !(",defined($nxt_info),
+		       " && $cur_type ne ",
+		       (defined($nxt_type) ? $nxt_type : 'undef')," && ",
+		       (defined($nxt_diff) ? $nxt_diff : 'undef')," == 1 && ",
+		       "(($cur_info->{POS} + 2) == ",
+		       (defined($nxt_info) ? $nxt_info->{POS} : 'undef'),
+		       " || ($cur_info->{POS} + 1) == ",
+		       (defined($nxt_info) ? $nxt_info->{POS} : 'undef'),
+		       "))))) || ($cur_info->{SHORTER} < $shortest_min && ",
+		       "($cur_diff <= $singlet_max_len_diff || ",
+		       "$singlet_max_len_diff == 0) && ($short_max_abund == ",
+		       "0 || (",exists($cur_info->{CHILDABUND})," && ",
+		       "$cur_info->{CHILDABUND} <= $short_max_abund)) && (!(",
+		       defined($nxt_info)," && $cur_type ne ",
+		       (defined($nxt_type) ? $nxt_type : 'undef')," && ",
+		       "$cur_diff == 1 && ",
+		       (defined($nxt_diff) ? $nxt_diff : 'undef')," == 1 && (",
+		       "$cur_info->{POS} + 1) == ",
+		       (defined($nxt_info) ? $nxt_info->{POS} : 'undef'),
+		       ") && !(",defined($nxt_info)," && $cur_type ne ",
+		       (defined($nxt_type) ? $nxt_type : 'undef')," && ",
+		       "$cur_diff == 1 && ",
+		       (defined($nxt_diff) ? $nxt_diff : 'undef')," == 1 && (",
+		       "$cur_info->{POS} + 2) == ",
+		       (defined($nxt_info) ? $nxt_info->{POS} : 'undef'),
+		       ")))))") if($DEBUG > 2);
+
+    if(#this position of the current homopolymer is not within the last 3
+       #homopolymers of the reduced string of the child or parent
+       ($cur_info->{POS} < ($cur_info->{PARENTREDUCLEN} - 2) ||
+        $cur_info->{POS} < ($cur_info->{CHILDREDUCLEN}  - 2)) && (
+       (
+        #the shorter of the child/parent monomers is at least length =
+	#shortest_min and abundance of the child is <= long_max_abund AND (
+        $cur_info->{SHORTER} >= $shortest_min &&
+	($long_max_abund == 0 ||
+	 (exists($cur_info->{CHILDABUND}) &&
+	  $cur_info->{CHILDABUND} <= $long_max_abund)) &&
+        (
+         #(difference in length of the child/parent monomers is >= 2 and at
+	 #most max_len_diff (or max_len_diff is 0) AND
+         (($max_len_diff == 0 || $cur_diff <= $max_len_diff) &&
+	  $cur_diff > 1 &&
+          #there is not an opposite type indel with a difference in length that
+          #is "the same" (and = 2) and is immediately adjacent) OR
+          !(defined($nxt_info) && $cur_type ne $nxt_type &&
+	    $cur_diff == $nxt_diff && $cur_diff == 2 &&
+            ($cur_info->{POS} + 1) == $nxt_info->{POS}
+           )
+         ) ||
+         #(difference in length of the child/parent monomers is 1 AND
+         ($cur_diff == 1 &&
+          #there is not an opposite type indel with a difference in length 1
+          #that is either immediately adjacent or after a single non-indel
+          #monomer
+          !(defined($nxt_info) && $cur_type ne $nxt_type && $nxt_diff == 1 &&
+            (($cur_info->{POS} + 2) == $nxt_info->{POS} ||
+             ($cur_info->{POS} + 1) == $nxt_info->{POS})
+           )
+         )
+        )
+       ) ||
+       (#the shorter of the child/parent monomers is at most 2, the difference
+        #in length <= singlet_max_len_diff and the abundance of the lesser
+        #abundant sequence is 1 AND
+        $cur_info->{SHORTER} < $shortest_min &&
+	($cur_diff <= $singlet_max_len_diff || $singlet_max_len_diff == 0) &&
+	($short_max_abund == 0 ||
+	 (exists($cur_info->{CHILDABUND}) &&
+	  $cur_info->{CHILDABUND} <= $short_max_abund)) &&
+        (
+         #there is not an opposite type indel with a difference in length 1
+         #(and is the same) that is immediately adjacent) AND
+         !(defined($nxt_info) && $cur_type ne $nxt_type && $cur_diff == 1 &&
+	   $nxt_diff == 1 && ($cur_info->{POS} + 1) == $nxt_info->{POS}
+          ) &&
+         #there is not an opposite type indel with a difference in length 1
+         #that is after a non-indel monomer
+         !(defined($nxt_info) && $cur_type ne $nxt_type && $cur_diff == 1 &&
+	   $nxt_diff == 1 && ($cur_info->{POS} + 2) == $nxt_info->{POS}
+          )
+        )
+       ))
+      )
+      {
+	debug("TRUE: $dbg_msg") if($DEBUG > 3);
+
+	return(1);
+      }
+
+    debug("FALSE: $dbg_msg") if($DEBUG > 3);
+
+    return(0);
+  }
+
+#Returns the alignment position of the indicated reduced string indel position
+#Assumes first record is parent
+sub getRealIndelPos
+  {
+    my $rec1      = $_[0];
+    my $rec2      = $_[1];
+    my $reduc_pos = $_[2];
+    my $real_pos  = 1;
+
+    #Assumes reduc_pos is less than the smaller length of the two records'
+    #reduced strings
+    for(my $i = 0;$i < $reduc_pos;$i++)
+      {
+	my $parent_monomer_length = getCharLen(substr($rec1->[2]->{NOMONOC},
+						      $i,
+						      1));
+	my $child_monomer_length  = getCharLen(substr($rec2->[2]->{NOMONOC},
+						      $i,
+						      1));
+	if(($i + 1) == $reduc_pos)
+	  {$real_pos += ($parent_monomer_length < $child_monomer_length ?
+			 $parent_monomer_length : $child_monomer_length)}
+	else
+	  {$real_pos += ($parent_monomer_length > $child_monomer_length ?
+			 $parent_monomer_length : $child_monomer_length)}
+      }
+
+    return($real_pos);
   }
