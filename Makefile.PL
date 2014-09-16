@@ -104,12 +104,12 @@ sub incompatibleUchime
 
     if(!defined($uchime) || $uchime eq '' || !-e $exe || !-x $exe)
       {
-	error("The uchime executable [$exe] appears to either not be in ",
-	      "your path, not exist, not have execute permissions, or you ",
-	      "have not created a symbolic link named 'usearch' to the full ",
-	      "name of the executable with version number.  If you have not ",
-	      "installed uchime, you can find it here: http://drive5.com/",
-	      "uchime/uchime_download.html");
+	print STDERR ("ERROR: The uchime executable [$exe] appears to either not be in ",
+	              "your path, not exist, not have execute permissions, or you ",
+	              "have not created a symbolic link named 'usearch' to the full ",
+	              "name of the executable with version number.  If you have not ",
+	              "installed uchime, you can find it here: http://drive5.com/",
+	              "uchime/uchime_download.html");
 	return(1);
       }
 
@@ -133,14 +133,14 @@ sub incompatibleUchime
 		last;
 	      }
 	  }
-	warning("This script was tested with usearch version ",
-		"7.0.1090_i86osx32.  Your version appears to be [$vnum], ",
-		"thus it may not work properly.") unless($ok);
+	print STDERR ("WARNING: This script was tested with usearch version ",
+		      "7.0.1090_i86osx32.  Your version appears to be [$vnum], ",
+		      "thus it may not work properly.") unless($ok);
       }
     else
-      {warning("This script was tested with usearch version ",
-	       "7.0.1090_i86osx32.  It may not work properly with the ",
-	       "version you are using.")}
+      {print STDERR ("WARNING: This script was tested with usearch version ",
+	             "7.0.1090_i86osx32.  It may not work properly with the ",
+	             "version you are using.")}
 
     return(0);
   }
@@ -157,13 +157,13 @@ sub getExe
       {$exe = which($sent_exe)}
     else
       {
-	verbose("File::Which not found, switching to backup method.");
+	print STDERR ("File::Which not found, switching to backup method.");
 	$exe = `which $sent_exe`;
 	chomp($exe);
 	if($exe =~ /which: Command not found./ || $exe !~ /\S/)
 	  {
-	    error("System command 'which' does not appear to exist.  Please ",
-		  "install the perl module File::Which.");
+	    print STDERR ("ERROR: System command 'which' does not appear to exist.  Please ",
+		          "install the perl module File::Which.");
 	    $exe = '';
 	  }
 	elsif($exe =~ /not found/i)
