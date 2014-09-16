@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.3';
+my $software_version_number = '1.4';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -431,7 +431,7 @@ if($min_candidacies !~ /^[1-9]\d*$/)
     quit(12);
   }
 
-#Make sure muscle is properly installed if library files have been supplied
+#Make sure uchime is properly installed if library files have been supplied
 if(scalar(@$library_files))
   {
     $uchime = getUchimeExe($uchime);
