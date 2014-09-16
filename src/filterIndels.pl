@@ -70,12 +70,12 @@ my $def_max_long_hpl_diff   = 2;
 my $def_max_long_hpl_abund  = 0;
 my $def_max_short_hpl_diff  = 1;
 my $def_max_short_hpl_abund = 1;
-my $sum_abund_pref_def  = 1;
-my $sum_abund_def       = 0;
-my $align_mode_def      = 'local';
-my $align_mode_pref_def = 'global';
-my $prefilter_mode      = 0;  #Sets sum_abund=1,homopolymers_only=1,
-                              #align_mode=global if undefined
+my $sum_abund_pref_def      = 1;
+my $sum_abund_def           = 0;
+my $align_mode_def          = 'local';
+my $align_mode_pref_def     = 'global';
+my $prefilter_mode          = 0;  #Sets sum_abund=1,homopolymers_only=1,
+                                  #align_mode=global if undefined
 my $min_shifted_hits    = 1;
 my $min_direct_hits     = 1;
 my $mitigate_recips     = 0;
