@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.22';
+my $software_version_number = '1.23';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -272,13 +272,13 @@ else
   {
     error("Unrecognized file type: [$filetype].  Must be 'fasta', 'fastq', ",
 	  "or 'auto'.");
-    quit(2);
+    quit(1);
   }
 
 if($abundance_pattern =~ /^\s*$/)
   {
     error("-p cannot be an empty string.");
-    quit(3);
+    quit(2);
   }
 elsif($abundance_pattern !~ /(?<!\\)\((?!\?[adluimsx\-\^]*:)/)
   {$abundance_pattern = '(' . $abundance_pattern . ')'}
@@ -291,13 +291,13 @@ if($zthresh < 0)
   {
     error("Invalid Z Score Threshold supplied (-z): [$zthresh].  Must be a ",
 	  "positive number.");
-    quit(4);
+    quit(3);
   }
 
 if($zthresh == 0 && defined($outfile_suffix))
   {
     error("The Z threshold (-z) cannot be 0 when -o is supplied.");
-    quit(7);
+    quit(4);
   }
 
 if($num_estimates eq '' || $num_estimates < 0)
@@ -313,19 +313,20 @@ if($size_threshold eq '' || $size_threshold < 0)
     error("-a must be an unsigned integer and less than or equal to ",
 	  "the number of sequences in the sequence file (-i) and rows in the ",
 	  "neighbors file (-n).");
-    quit(7);
+    quit(6);
   }
 
 if($sigdig !~ /^\d+$/)
   {
     error("Invalid number of significant digits: [$sigdig].  Must be an ",
 	  "unsigned integer.");
+    quit(7);
   }
 
 if((defined($hist_suffix) || $zthresh == 0) && $step_size < 0)
   {
     error("Invalid step size: [$step_size].  Must be greater than 0.");
-    quit(6);
+    quit(8);
   }
 
 if(!defined($window_size))
@@ -2968,7 +2969,7 @@ end_print
                 between the 2 steps and thus filtered in an unexpected manner
                 when producing the error rates.
 
-                This script represents the third and fourth steps of a 7 step
+                This script represents the third and fourth steps of a 8 step
                 process in the package called 'cff' (cluster free filtering).
                 Please refer to the README for general information about the
                 package.
@@ -3819,7 +3820,7 @@ sub getNextSeqRec
 	  {
 	    error("`-t auto` cannot be used when the input file is supplied ",
 		  "on standard input.  Please supply the exact file type.");
-	    quit(2);
+	    quit(9);
 	  }
 
 	if(!-e $input_file || $input_file =~ / /)
@@ -3827,7 +3828,7 @@ sub getNextSeqRec
 	    error("`-t auto` cannot be used when the input file does not ",
 		  "exist or has a space in its name.  Please supply the ",
 		  "exact file type.");
-	    quit(3);
+	    quit(10);
 	  }
 
 	my $num_fastq_defs =
