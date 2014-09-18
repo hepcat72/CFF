@@ -38,6 +38,7 @@ WriteMakefile
                  'IO::Select'           => 1.21,   #OPTIONAL Only needed by filterIndels.pl
                  'IO::Pipe::Producer'   => 2.0,    #OPTIONAL Only needed by filterIndels.pl
                  'Sys::Info'            => 0.78,   #OPTIONAL Only needed by filterIndels.pl
+                 'Sys::MemInfo'         => 0.91,   #OPTIONAL Only needed by filterIndels.pl
                  'File::Which'          => 1.09    #OPTIONAL Uses `which` without it
                 },
    EXE_FILES => [ map { "src/$_" } @scripts ]
