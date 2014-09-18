@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.4';
+my $software_version_number = '1.5';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -345,8 +345,8 @@ if(scalar(@$bad_indexes))
     error("These numbered pairs of -i and -d have a different number of ",
 	  "files: [",join(',',@$bad_indexes),"].  Each -i/-d bad pair has ",
 	  "this many files: [",
-	  join(',',(map {$_--;scalar(@${$input_files->[$_]}) . '/' .
-			   scalar(@${$drp_files->[$_]})} @$bad_indexes)),
+	  join(',',(map {$_--;scalar(@{$input_files->[$_]}) . '/' .
+			   scalar(@{$drp_files->[$_]})} @$bad_indexes)),
 	  "].  The number of files to -i must be the same as to -d for each ",
 	  "ordered occurrence of -i/-d.");
     quit(7);
@@ -3680,7 +3680,7 @@ sub getMatchedSets
 		$done->{$hash->{TYPE}} = 1;
 		push(@$fixed_fin_combo,$hash);
 	      }
-	    @$finished_combo = @${fixed_fin_combo};
+	    @$finished_combo = @$fixed_fin_combo;
 	  }
 	my @missing = grep {$check->{$_} == 0} keys(%$check);
 	if(scalar(@missing))
@@ -3710,7 +3710,7 @@ sub getMatchedSets
 	    foreach my $hash (@$finished_combo)
 	      {push(@$fixed_fin_combo,$hash)
 		 unless(exists($unknown->{$hash->{TYPE}}))}
-	    @$finished_combo = @${fixed_fin_combo};
+	    @$finished_combo = @$fixed_fin_combo;
 	  }
 
 	#Save the combo to return it
