@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '3.5';
+my $software_version_number = '3.6';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -4052,7 +4052,8 @@ sub deflineAddendum
     return($delimiter);
   }
 
-#Uses globals: $seq_id_pattern, $abundance_pattern, $homopolymers_only
+#Uses globals: $seq_id_pattern, $abundance_pattern, $homopolymers_only,
+#$heuristic_str_size
 #Returns sequence records as an array of arrays and adds the original order
 #number to the end of each record in a hash keyed on "ORDER".
 sub getCheckAllSeqRecs
@@ -4150,8 +4151,11 @@ sub getCheckAllSeqRecs
 
 	next if($abund < $min_abund);
 
+	#We will compute the nomonos string whether we're in homopolymer mode
+	#or if we are using the substring heuristic (because it can quickly
+	#catch some indels that the heuristic cannot catch)
 	my($nomono_seq,$nomono_len,$nomono_lens);
-	if($homopolymers_only)
+	if($homopolymers_only || $heuristic_str_size)
 	  {
 	    $nomono_seq = uc($seq);
 	    $nomono_seq =~ s/(.)\1*(?=\1)//g;
@@ -4912,8 +4916,8 @@ sub getComparisons
 
 		    #We're only going to let homopolymer indels through here
 		    #whether we're in homopolymer mode or not.  This is a
-		    #shortcut to allow us to find somethings quickly
-		    next if(noMonosDiffer($rec_hash->{$first},
+		    #shortcut to allow us to find some things quickly
+		    next if(only454Indels($rec_hash->{$first},
 					  $rec_hash->{$second}));
 
 		    debug("Comparison found using nomono length ",
@@ -6341,18 +6345,6 @@ sub replaceAbund
     return($def);
   }
 
-sub noMonosDiffer
-  {
-    my $rec1 = $_[0];
-    my $rec2 = $_[1];
-    my $min = $rec1->[2]->{NOMONOL} < $rec2->[2]->{NOMONOL} ?
-      $rec1->[2]->{NOMONOL} : $rec2->[2]->{NOMONOL};
-    return($rec1->[2]->{NOMONOL} == $rec2->[2]->{NOMONOL} ?
-	   $rec1->[2]->{NOMONOS} ne $rec2->[2]->{NOMONOS} :
-	   substr($rec1->[2]->{NOMONOS},0,$min) ne
-	   substr($rec2->[2]->{NOMONOS},0,$min));
-  }
-
 sub meetMinDirectsRule
   {
     my $seq1        = $_[0];
@@ -6382,12 +6374,12 @@ sub meetMinDirectsRule
     return(0);
   }
 
+#Globals Used: $homopolymers_only
 sub getNoMonosHash
   {
     my $rec_hash       = $_[0];
     my $min_nomono_len = $_[1];
-
-    my $nomonos_hash = {};
+    my $nomonos_hash   = {};
 
     foreach my $key (keys(%$rec_hash))
       {$nomonos_hash->{substr($rec_hash->{$key}->[2]->{NOMONOS},
