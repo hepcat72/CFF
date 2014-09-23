@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.5';
+my $software_version_number = '1.6';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -4133,6 +4133,12 @@ end_print
                                    script finishes, if one occurred or if in
                                    verbose mode.  0 = no limit.  See also
                                    --quiet.
+     --tmpdir             OPTIONAL [env*] The directory to use for temporary
+                                   intermediate files used by usearch.
+                                   *Default values is retrieved from an
+                                   environment variable.
+     --tmp-suffix         OPTIONAL [.tmp.fna] Suffix appended to temporary file
+                                   names to make them easily identifiable.
      --dry-run            OPTIONAL Run without generating output files.
      --version            OPTIONAL Print version info.  Includes template
                                    version with --extended.
