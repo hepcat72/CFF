@@ -1,6 +1,6 @@
 require 5.000;
 use ExtUtils::MakeMaker;
-my @scripts = qw(mergeSeqs.pl neighbors.pl errorRates.pl nZeros.pl getCandidates.pl getReals.pl filterIndels.pl run_CFF_on_FastA.tcsh run_CFF_on_FastQ.tcsh);
+my @scripts = qw(mergeSeqs.pl neighbors.pl errorRates.pl nZeros.pl getCandidates.pl getReals.pl filterIndels.pl cff2qiime.pl interestingPairs.pl run_CFF_on_FastA.tcsh run_CFF_on_FastQ.tcsh);
 
 
 
@@ -14,11 +14,13 @@ if(incompatibleMuscle(getExe('muscle')))
                  "errors, you must install a compatible version of muscle and put it in ",
                  "your path.  Everything else will work fine.")}
 
-if(incompatibleUchime(getExe('usearch')))
-  {print STDERR ("WARNING: uchime appears to be missing or potentially incompatible.  ",
+if(incompatibleUsearch(getExe('usearch')))
+  {print STDERR ("WARNING: usearch appears to be missing or potentially incompatible.  ",
                  "Installation will proceed, but in order to run getReals.pl (with -f) ",
-                 "without errors, you must install a compatible version of uchime and put ",
-                 "it in your path.  Everything else will work fine.")}
+                 "to filter chimeric sequences or interestingPairs.pl to find dynamically ",
+                 "similar abundance traces without errors, you must install a compatible ",
+                 "version of usearch and put it in your path.  Everything else will work ",
+                 "fine.")}
 
 
 
@@ -32,14 +34,16 @@ WriteMakefile
    (AUTHOR   => 'Robert W. Leach (rleach@genomics.princeton.edu)',
     ABSTRACT => 'Determine which sequences are real in a metagenomic sample.') : (),
    VERSION   => "2.0",
-   PREREQ_PM => {'Getopt::Long'         => 2.38,
-                 'File::Glob'           => 1.17,
-                 'IPC::Open3'           => 1.12,   #OPTIONAL Only needed by filterIndels.pl
-                 'IO::Select'           => 1.21,   #OPTIONAL Only needed by filterIndels.pl
-                 'IO::Pipe::Producer'   => 2.0,    #OPTIONAL Only needed by filterIndels.pl
-                 'Sys::Info'            => 0.78,   #OPTIONAL Only needed by filterIndels.pl
-                 'Sys::MemInfo'         => 0.91,   #OPTIONAL Only needed by filterIndels.pl
-                 'File::Which'          => 1.09    #OPTIONAL Uses `which` without it
+   PREREQ_PM => {'Getopt::Long'              => 2.38,
+                 'File::Glob'                => 1.17,
+                 'IPC::Open3'                => 1.12, #OPTIONAL for filterIndels.pl
+                 'IO::Select'                => 1.21, #OPTIONAL for filterIndels.pl & interestingPairs.pl
+                 'IO::Pipe::Producer'        => 2.0,  #OPTIONAL for filterIndels.pl & interestingPairs.pl
+                 'Sys::Info'                 => 0.78, #OPTIONAL for filterIndels.pl & interestingPairs.pl
+                 'Sys::MemInfo'              => 0.91, #OPTIONAL for filterIndels.pl
+                 'File::Which'               => 1.09, #OPTIONAL All scripts use `which` without it
+                 'Math::Random'              => 0.71, #OPTIONAL for interestingPairs.pl
+                 'Statistics::Distributions' => 1.02  #OPTIONAL for interestingPairs.pl
                 },
    EXE_FILES => [ map { "src/$_" } @scripts ]
   );
@@ -97,20 +101,20 @@ sub incompatibleMuscle
     return(0);
   }
 
-sub incompatibleUchime
+sub incompatibleUsearch
   {
-    my $uchime = $_[0];
-    my $exe    = $uchime;
-    $exe       =~ s/ .*//;
+    my $usearch = $_[0];
+    my $exe     = $usearch;
+    $exe        =~ s/ .*//;
 
-    if(!defined($uchime) || $uchime eq '' || !-e $exe || !-x $exe)
+    if(!defined($usearch) || $usearch eq '' || !-e $exe || !-x $exe)
       {
-	print STDERR ("ERROR: The uchime executable [$exe] appears to either not be in ",
+	print STDERR ("ERROR: The usearch executable [$exe] appears to either not be in ",
 	              "your path, not exist, not have execute permissions, or you ",
 	              "have not created a symbolic link named 'usearch' to the full ",
 	              "name of the executable with version number.  If you have not ",
-	              "installed uchime, you can find it here: http://drive5.com/",
-	              "uchime/uchime_download.html");
+	              "installed usearch, you can find it here: http://www.drive5.com/",
+                      "usearch/download.html");
 	return(1);
       }
 
