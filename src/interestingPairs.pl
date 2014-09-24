@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.1';
+my $software_version_number = '1.2';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -88,8 +88,7 @@ my $append_abunds     = 0;
 
 #Command line parameters
 my $GetOptHash =
-  {'i|input-file|' .
-   'stdin-stub|stub=s'      => sub {push(@$input_files,    #REQUIRED unless <>
+  {'i|input-file=s'         => sub {push(@$input_files,    #REQUIRED unless <>
 					 [sglob($_[1])])}, #        is supplied
    '<>'                     => sub {checkFileOpt($_[0],1);
 				    push(@$input_files,    #REQUIRED unless -i
@@ -512,9 +511,14 @@ foreach my $set_num (0..$#$input_file_sets)
       {
 	if(!exists($abunds_hash->{$abunds_file}))
 	  {$abunds_hash->{$abunds_file} = getAbundanceTraces($abunds_file)}
-	#getAbundanceTraces will issue an error - just catch here & skip
-	elsif(scalar($abunds_hash->{$abunds_file}) == 0)
-	  {next}
+	if(scalar($abunds_hash->{$abunds_file}) == 0 ||
+	   (scalar($abunds_hash->{$abunds_file}) == 1 &&
+	    exists($abunds_hash->{$abunds_file}->{_HEADER_})))
+	  {
+	    error("Skipping sequence file [$input_file] because there was no ",
+		  "abundance data parsed from abundance file [$abunds_file].");
+	    next;
+	  }
       }
 
     #Put abundance data in with the related sequence data & sum them
@@ -4328,9 +4332,9 @@ sub usage
 	    keys(%$GetOptHash)) .
        ']' : '[...]');
 
-    print("\n$script -i \"input file(s)\" [-o .out] $options\n",
+    print("\n$script -i \"input file(s)\" $options\n",
 	  (!$local_extended ? '' :
-	   "$script -i \"outfile_stub\" [-o .out] $options < input_file\n"),
+	   "$script $options < input_file\n"),
 	  "\n");
 
     if($error_mode)
@@ -4340,10 +4344,12 @@ sub usage
 	if(!$local_extended)
 	  {
 	    print << 'end_print';
-     -i                   REQUIRED Input sequence sample file(s).  See --help
-                                   for file format.
-     -s                   OPTIONAL [none] Summary abundance file.  See --help
-                                   for file format.
+     -i                   REQUIRED Input sequence file(s).  See --help for file
+                                   format.
+     -s                  *REQUIRED Summary abundance file.  See --help for file
+                                   format.  *Optional if -i is supplied
+                                   multiple sample sequence files with
+                                   abundances on the deflines.
      -o                   OPTIONAL [stdout] Output file.
      -a                   OPTIONAL [10] The minimum average abundance at or
                                    above which a sequence will be considered.
@@ -4366,19 +4372,20 @@ end_print
 	else #Advanced options/extended usage output
 	  {
 	    print << 'end_print';
-     -i,--input-file,     REQUIRED Input fasta or fastq sequence file(s).
-     --stdin-stub,--stub*          Space separated, globs OK (e.g. -i "*.text
-                                   [A-Z].{?,??}.txt").  When standard input
-                                   detected, -o has been supplied, and -i is
-                                   given only 1 argument, it will be used as a
-                                   file name stub for combining with -o to
-                                   create the outfile name.  See --extended
-                                   --help for file format and advanced usage
-                                   examples.
+     -i,--input-file      REQUIRED Input fasta or fastq sequence file(s).  This
+                                   may be a global library sequence file or a
+                                   series of sample sequence files.  In either
+                                   case, the union of all sequences are used.
+                                   Space separated, globs OK (e.g. -i "*.fna
+                                   [A-Z].{?,??}.fa").  See --extended --help
+                                   for file format and advanced usage examples.
                                    *No flag required.
-     -s,--abunds-file     OPTIONAL [none] Summary abundance file.  This is the
-                                   file you would get from running getReals.pl
-                                   with the -s option.
+     -s,--abunds-file    *REQUIRED Summary abundance file.  This is the file
+                                   you would get from running getReals.pl with
+                                   the -s option.
+                                   *Optional if -i is supplied multiple sample
+                                   sequence files with abundances on the
+                                   deflines.
      -o,--outfile         OPTIONAL [stdout] Output file.  Will not overwrite
                                    without --overwrite.  Default behavior
                                    prints output to standard out.  See
@@ -6087,6 +6094,13 @@ sub getSimilarSeqPairs
       }
     closeIn(*IN);
 
+    if(scalar(keys(%{$seq_pair_hash})) == 0)
+      {error("No sequence pairs were found to meet the minimum sequence ",
+	     "identity cutoff.  You may need to either reduce your identity ",
+	     "cutoff (see -n/--min-seq-similarity) or adjust some of the ",
+	     "usearch parameters (see --usearch-opts-str), particularly the ",
+	     "-evalue parameter.")}
+
     return($seq_pair_hash);
   }
 
@@ -6604,24 +6618,12 @@ sub getPearson
 
 	my $student_t = sqrt($degrees_of_freedom / (1 - $corr_coef**2));
 
-#	my $critical_t = Statistics::Distributions::tdistr($degrees_of_freedom,
-#							   0.05);
-
 	$p_val = Statistics::Distributions::tprob($degrees_of_freedom,
 						  $student_t);
       }
 
-#    debug("Returning r [$corr_coef] and p [$p_val].");
-
     return($corr_coef,$p_val);
   }
-
-
-
-
-
-
-
 
 #Assumes that the key order in the seq_pairs_hash is in order of decreasing
 #abundance
@@ -6632,6 +6634,8 @@ sub getDissimilarAbundPairs
     my $seq_hash        = $_[1]; #$seq_hash->{ID}={ABUNDS=[],SEQ=str,ABUNDSUM}
     my $max_dynsim      = $_[2];
     my $abund_pair_hash = {};
+
+    return($abund_pair_hash) if(scalar(keys(%$seq_pair_hash)) == 0);
 
     foreach my $greater_id (keys(%$seq_pair_hash))
       {
@@ -6656,10 +6660,16 @@ sub getDissimilarAbundPairs
 	  }
       }
 
+    if(scalar(keys(%$abund_pair_hash)) == 0)
+      {error("No dissimilar abundance pairs were found to meet the maximum ",
+	     "dynamical similarity cutoff (-x/--max-dynamical-similarity: ",
+	     "[$max_dynsim]).  Raise this cutoff and try again.")}
+
     return($abund_pair_hash);
   }
 
-#Globals used: $header, $sigdig, $usearch_col_str
+#Globals used: $header, $sigdig, $usearch_col_str, $min_mean_abund,
+#$max_dynsim, $min_seqsim
 sub reportPairs
   {
     my $abund_pair_hash = $_[0];
@@ -6734,11 +6744,18 @@ sub reportPairs
 	print("\n");
       }
 
-    print(join("\n",
-	       map {join("\t",@$_)}
-	       sort {abs($a->[2]) <=> abs($b->[2]) || $a->[3] cmp $b->[3] ||
-		       $a->[0] cmp $b->[0] || $a->[1] cmp $b->[1]} @pairs),
-	  "\n");
+    if(scalar(@pairs))
+      {print(join("\n",
+		  map {join("\t",@$_)}
+		  sort {abs($a->[2]) <=> abs($b->[2]) || $a->[3] cmp $b->[3] ||
+			  $a->[0] cmp $b->[0] || $a->[1] cmp $b->[1]} @pairs),
+	     "\n")}
+    else
+      {warning("No pairs that meet all the cutoffs were found.  Please ",
+	       "adjust the cutoffs and re-try.  Current cutoff thresholds: ",
+	       "-a/--min-mean-abundance: [$min_mean_abund], ",
+	       "-x/--max-dynamical-similarity: [$max_dynsim], ",
+	       "-n/--min-seq-similarity: [$min_seqsim].")}
   }
 
 #Globals used: $force, $header
@@ -6867,6 +6884,10 @@ sub getAbundanceTraces
 
 	$abunds_hash->{_HEADER_} = [1..$num_cols];
       }
+
+    if(scalar(keys(%$abunds_hash)) == 0 || (scalar(keys(%$abunds_hash)) == 1 &&
+					    exists($abunds_hash->{_HEADER_})))
+      {error("No abundances were parsed from abundance file [$abunds_file].")}
 
     return($abunds_hash);
   }
