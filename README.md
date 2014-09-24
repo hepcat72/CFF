@@ -11,6 +11,8 @@ This version works best with Illumina data. The package will also work with 454 
 
 The final sequence output of this pipeline can be converted to a format which can be used in the Qiime analysis package.  See qiime.org for more information.
 
+The benefit of this approach is the ability to find very similar sequences which behave differently in terms of abundance in a series of samples (e.g. a time-series).  Toward that end, CFF provides a means by which to identify pairs of sequences that have high sequence identity and dynamically dissimilar abundances.
+
 This README file provides basic installation/usage information. For a thorough introduction to the cluster-free filtering approach, including the motivation, algorithm, limitations, and examples of application, see [1]. For detailed usage information of individual scripts, see built-in documentation.
 
 
@@ -18,15 +20,16 @@ This README file provides basic installation/usage information. For a thorough i
 
 The pipeline is an 8-step process, plus an optional conversion step to use the output with qiime, version 1.3.0 (see qiime.org). It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available.
 
-    1. mergeSeqs.pl     truncates, dereplicates, and renames sequences in samples
-    2. neighbors.pl     generates a list of Hamming distance 1 sequences
-    3. errorRates.pl    generates a Z-Score histogram (see -h)
-    4. errorRates.pl    estimates substitution error rate (see -z)
-    5. nZeros.pl        calculates null model abundance (N0) for each sequence
-    6. getCandidates.pl filters sequences by N/N0 threshold
-    7. getReals.pl      filters chimeric candidates and generates overall abundance table
-    8. filterIndels.pl  (optional) identifies sequences differing by indels
-    9. cff2qiime.pl     (optional) convert sequence output to qiime input files
+    1.  mergeSeqs.pl        truncates, dereplicates, and renames sequences in samples
+    2.  neighbors.pl        generates a list of Hamming distance 1 sequences
+    3.  errorRates.pl       generates a Z-Score histogram (see -h)
+    4.  errorRates.pl       estimates substitution error rate (see -z)
+    5.  nZeros.pl           calculates null model abundance (N0) for each sequence
+    6.  getCandidates.pl    filters sequences by N/N0 threshold
+    7.  getReals.pl         filters chimeric candidates and generates an abundance table
+    8.  filterIndels.pl     (optional) identifies sequences differing by indels
+    9.  cff2qiime.pl        (optional) convert sequence output to qiime input files
+    10. interestingPairs.pl (optional) identify similar sequences that behave differently
 
 Note that when analyzing 454 data, consider running filterIndels.pl in --pre-filter-mode first, but be aware that this could mix sequences with biologically real indels with neighboring sequences. These scripts assume that each "real" sequence (those we seek to identify), whenever present in the sample, start from the same place in its sequence. In particular, CFF will work with any PCR-amplified tag sequencing dataset (such as 16S), but is NOT applicable to shotgun metagenomics where sequences need to be aligned to match each other.
 
@@ -36,52 +39,45 @@ The pipeline is designed to filter for errors that are the result of sequencing 
 
 Helpful definitions:
 
-    Candidate:         A sequence that is suspected to not be the
-                       result of a PCR substitution error and may
-                       exist in the original biological sample.
-    Real sequence:     A candidate sequence that was found in an
-                       arbitrary minimum threshold number of
-                       samples (and may have been optionally
-                       screened for chimerism).
-    Fake sequence:     A sequence that is presumed to be the result
-                       of a PCR substitution error and is believed
-                       to not exist in the original biological
+    Candidate:         A sequence that is suspected to not be the result of a PCR
+                       substitution error and may exist in the original biological
+                       sample.
+    Real sequence:     A candidate sequence that was found in an arbitrary minimum
+                       threshold number of samples (and may have been optionally screened
+                       for chimerism).
+    Fake sequence:     A sequence that is presumed to be the result of a PCR substitution
+                       error and is believed to not exist in the original biological
                        sample.
     Indel:             A DNA insertion or deletion.
-    Mother sequence:   A theoretical real sequence from which
-                       erroneous sequences are derived.  Each
-                       sequence in column 1 of the neighbors file
-                       is referred to as a mother sequence when
-                       comparing it to its neighbors on that row.
-    N0 ("N zero"):     The abundance of a sequence that would be
-                       expected if it is the result of a PCR
-                       substitution error.
-    N/N0:              A.k.a. the "abundance/N0" fraction.  This is
-                       the abundance of a sequence divided by the
-                       expected abundance if the sequence is a fake
-                       sequence (i.e. the result of a PCR
-                       substitution error).
-    Neighbor sequence: A sequence that differs by 1 substitution
-                       from a mother sequence.  Also referred to as
-                       "1st neighbor" or "hamming distance 1
+    Mother sequence:   A theoretical real sequence from which erroneous sequences are
+                       derived.  Each sequence in column 1 of the neighbors file is
+                       referred to as a mother sequence when comparing it to its
+                       neighbors on that row.
+    N0 ("N zero"):     The abundance of a sequence that would be expected if it is the
+                       result of a PCR substitution error.
+    N/N0:              A.k.a. the "abundance/N0" fraction.  This is the abundance of a
+                       sequence divided by the expected abundance if the sequence is a
+                       fake sequence (i.e. the result of a PCR substitution error).
+    Neighbor sequence: A sequence that differs by 1 substitution from a mother sequence.
+                       Also referred to as "1st neighbor" or "hamming distance 1
                        neighbor".
-    Reverse Spillover: An error that reverses a previous error to
-                       be correct by chance, or an error that
-                       causes a real sequence to turn into a
-                       different real sequence.
-    Z Score:           During the estimation of the error rates, a
-                       Z Score is calculated for each neighbor.  It
-                       is computed as:
+    Reverse Spillover: An error that reverses a previous error to be correct by chance,
+                       or an error that causes a real sequence to turn into a different
+                       real sequence.
+    Z Score:           During the estimation of the error rates, a Z Score is calculated
+                       for each neighbor.  It is computed as:
 
                        z = (An - Amu) / Astddev
 
-                       where An is the abundance of a particular
-                       neighbor, Amu is the average neighbor
-                       abundance, and Astddev is the standard
-                       deviation of neighbor abundance.  It is then
-                       used with a supplied threshold to filter out
-                       potential real sequences from the estimation
-                       of the error background.
+                       where An is the abundance of a particular neighbor, Amu is the
+                       average neighbor abundance, and Astddev is the standard deviation
+                       of neighbor abundance.  It is then used with a supplied threshold
+                       to filter out potential real sequences from the estimation of the
+                       error background.
+    Dynamical          A Pearson correlation of the abundance time-trace between 2
+    Similarity         sequences, normalized by their maximum possible correlation (cmax,
+                       computed as the correlation of the higher-abundance time trace
+                       with a Poisson-downsampled version of itself)
 
 Note, each script is designed to handle multiple input files.  If you supply 1 of one type of file and 10 of another type of file, the same single file will be used for processing each of the other 10 files.  E.g.:
 
@@ -108,8 +104,8 @@ Dependencies:
     muscle - alignment tool required by filterIndels.pl
     http://www.drive5.com/muscle/downloads.htm
 
-    uchime (i.e. usearch) - chimera tool required by getReals.pl
-    http://drive5.com/uchime/uchime_download.html
+    usearch - sequence search tool required by getReals.pl & interestingPairs.pl
+    http://www.drive5.com/usearch/download.html
 
 Install the above dependencies and make sure muscle is in your PATH, then install CFF.  You may install muscle afterwards, but you will see an error.
 
@@ -117,18 +113,20 @@ In a terminal window, cd into the CFF directory and run the following commands:
 
     perl Makefile.PL
     make
-    make install
+    sudo make install
 
 Perl Module Dependencies:
 
-    Getopt::Long       (version 2.38)   #REQUIRED
-    File::Glob         (version 1.17)   #REQUIRED
-    IPC::Open3         (version 1.12)   #OPTIONAL Only needed by filterIndels.pl
-    IO::Select         (version 1.21)   #OPTIONAL Only needed by filterIndels.pl
-    IO::Pipe::Producer (version 1.8)    #OPTIONAL Only needed by filterIndels.pl
-    Sys::Info          (version 0.78)   #OPTIONAL Only needed by filterIndels.pl
-    Sys::MemInfo       (version 0.91)   #OPTIONAL Only needed by filterIndels.pl
-    File::Which        (version 1.09)   #OPTIONAL Will use `which` if not present
+    Getopt::Long               v2.38
+    File::Glob                 v1.17
+    IPC::Open3                 v1.12  Needed for filterIndels.pl
+    IO::Select                 v1.21  Needed for filterIndels.pl & interestingPairs.pl
+    IO::Pipe::Producer         v2.0   Needed for filterIndels.pl & interestingPairs.pl
+    Sys::Info                  v0.78  Needed for filterIndels.pl & interestingPairs.pl
+    Sys::MemInfo               v0.91  Needed for filterIndels.pl
+    File::Which                v1.09  Needed for all scripts use `which` without it
+    Math::Random               v0.71  Needed for interestingPairs.pl
+    Statistics::Distributions  v1.02  Needed for interestingPairs.pl
 
 Installing dependent perl modules is easy if you use cpan.  You may have to answer a series of questions to set up cpan at first, but once it's setup, here's an example of the commands to install the module dependencies:
 
@@ -141,10 +139,14 @@ Installing dependent perl modules is easy if you use cpan.  You may have to answ
     > install Sys::Info
     > install Sys::MemInfo
     > install File::Which
+    > install Math::Random
+    > install Statistics::Distributions
 
 To run filterIndels.pl without error (unless running in --pre-filter-mode or --homopolymer-mode), you need to have muscle installed and in your PATH.  If it's not in your path, you can supply the muscle executable with full path to the -y option.  You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.
 
-To run getReals.pl with the -f option (implying candidates should be filtered for chimeras) without error, you need to have uchime installed and in your PATH.  If it's not in your path, you can supply the uchime executable with full path to the -y option.  You can install CFF without installing uchime.  If you want to run getReals.pl with -f, you can install uchime at a later time.
+To run getReals.pl with the -f option (implying candidates should be filtered for chimeras) without error, uchime is required (a part of the usearch package).  If it's not in your path, you can supply the usearch executable with full path to the -y option.  You can install CFF without installing usearch.  If you want to run getReals.pl with -f, you can install usearch at a later time.
+
+To run interestingPairs.pl without error, usearch is required.  If it's not in your path, you can supply the usearch executable with full path to the -y option.  You can install CFF without installing usearch.  If you want to run interestingPairs.pl, you can install usearch at a later time.
 
 ## EXAMPLE
 
