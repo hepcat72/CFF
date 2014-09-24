@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.0';
+my $software_version_number = '1.1';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -6813,6 +6813,21 @@ sub getAbundanceTraces
 	      "fill empty trailing columns with zeros up to match the line ",
 	      "with the most columns.");
 	return({});
+      }
+
+    if(!$force && $num_cols < 6)
+      {
+	if($force)
+	  {warning("Not enough abundance columns in abundance file ",
+		   "[$abunds_file].  Need at least 6 in order to calculate ",
+		   "dynamical similarity.  Forcing.")}
+	else
+	  {
+	    error("Not enough abundance columns in abundance file ",
+		  "[$abunds_file].  Need at least 6 in order to calculate ",
+		  "dynamical similarity.  Use --force to try anyway.");
+	    return({});
+	  }
       }
 
     #Fill the short rows with 0s up to the length of the row with the most
