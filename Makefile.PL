@@ -36,12 +36,12 @@ WriteMakefile
    VERSION   => "2.0",
    PREREQ_PM => {'Getopt::Long'              => 2.38,
                  'File::Glob'                => 1.17,
+                 'File::Which'               => 1.09, #OPTIONAL All scripts use `which` without it
                  'IPC::Open3'                => 1.12, #OPTIONAL for filterIndels.pl
                  'IO::Select'                => 1.21, #OPTIONAL for filterIndels.pl & interestingPairs.pl
                  'IO::Pipe::Producer'        => 2.0,  #OPTIONAL for filterIndels.pl & interestingPairs.pl
                  'Sys::Info'                 => 0.78, #OPTIONAL for filterIndels.pl & interestingPairs.pl
                  'Sys::MemInfo'              => 0.91, #OPTIONAL for filterIndels.pl
-                 'File::Which'               => 1.09, #OPTIONAL All scripts use `which` without it
                  'Math::Random'              => 0.71, #OPTIONAL for interestingPairs.pl
                  'Statistics::Distributions' => 1.02  #OPTIONAL for interestingPairs.pl
                 },
