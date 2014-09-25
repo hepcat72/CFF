@@ -18,7 +18,7 @@ This README file provides basic installation/usage information. For a thorough i
 
 ## THE PIPELINE
 
-The pipeline is an 8-step process, plus an optional conversion step to use the output with qiime, version 1.3.0 (see qiime.org). It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available.
+The pipeline is an 7-step process to find sequences that are as error-free as possible, plus 3 optional steps: an indel filtering step, a conversion step to use the output with qiime, version 1.3.0 (see qiime.org), and a follow-up analysis designed to find pairs of similar sequences that behave differently in a population. It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available.
 
     1.  mergeSeqs.pl        truncates, dereplicates, and renames sequences in samples
     2.  neighbors.pl        generates a list of Hamming distance 1 sequences
@@ -79,7 +79,7 @@ Helpful definitions:
                        computed as the correlation of the higher-abundance time trace
                        with a Poisson-downsampled version of itself)
 
-Note, each script is designed to handle multiple input files.  If you supply 1 of one type of file and 10 of another type of file, the same single file will be used for processing each of the other 10 files.  E.g.:
+Note, each script is designed to handle multiple input files.  No other scripting is required to run the individual scripts.  If you supply 1 of one type of file and 10 of another type of file, the same single file will be used for processing each of the other 10 files.  E.g.:
 
     nZeros.pl -i "*.fna" -n all_neighbors.nbrs -r my_error_rates.err -o .n0
 
@@ -99,7 +99,7 @@ https://github.com/hepcat72/CFF/archive/master.zip
 
 ## INSTALL
 
-Dependencies:
+Download & install the executable dependencies:
 
     muscle - alignment tool required by filterIndels.pl
     http://www.drive5.com/muscle/downloads.htm
@@ -107,15 +107,26 @@ Dependencies:
     usearch - sequence search tool required by getReals.pl & interestingPairs.pl
     http://www.drive5.com/usearch/download.html
 
-Install the above dependencies and make sure muscle is in your PATH, then install CFF.  You may install muscle afterwards, but you will see an error.
+Make sure muscle & usearch are in your PATH.  If you're in a hurry and you don't want to run getReals.pl, filterIndels.pl, or interestingPairs.pl, you may install the executables after installing CFF, but you will see an error.
 
-In a terminal window, cd into the CFF directory and run the following commands:
+Install the perl module dependencies.  We will use CPAN for this.  You may have to answer a series of questions to set up cpan at first.  Run this command to start CPAN:
 
-    perl Makefile.PL
-    make
-    sudo make install
+    env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 /usr/bin/perl -MCPAN -e shell
 
-Perl Module Dependencies:
+Once you have a cpan prompt, install each of these dependent modules one by one by issuing these commands:
+
+    install Getopt::Long
+    install File::Glob
+    install IPC::Open3
+    install IO::Select
+    install IO::Pipe::Producer
+    install Sys::Info
+    install Sys::MemInfo
+    install File::Which
+    install Math::Random
+    install Statistics::Distributions
+
+You may already have some of these modules, but some might be too old, so note the version numbers.  Here is the required version information for each of the modules.
 
     Getopt::Long               v2.38
     File::Glob                 v1.17
@@ -128,19 +139,11 @@ Perl Module Dependencies:
     Math::Random               v0.71  Needed for interestingPairs.pl
     Statistics::Distributions  v1.02  Needed for interestingPairs.pl
 
-Installing dependent perl modules is easy if you use cpan.  You may have to answer a series of questions to set up cpan at first, but once it's setup, here's an example of the commands to install the module dependencies:
+Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
 
-    env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 /usr/bin/perl -MCPAN -e shell
-    > install Getopt::Long
-    > install File::Glob
-    > install IPC::Open3
-    > install IO::Select
-    > install IO::Pipe::Producer
-    > install Sys::Info
-    > install Sys::MemInfo
-    > install File::Which
-    > install Math::Random
-    > install Statistics::Distributions
+    perl Makefile.PL
+    make
+    sudo make install
 
 To run filterIndels.pl without error (unless running in --pre-filter-mode or --homopolymer-mode), you need to have muscle installed and in your PATH.  If it's not in your path, you can supply the muscle executable with full path to the -y option.  You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.
 
