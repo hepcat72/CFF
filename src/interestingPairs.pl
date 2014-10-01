@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.2';
+my $software_version_number = '1.3';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -67,7 +67,8 @@ my $outfile_suffix    = '';
 my $input_files       = [];
 my $abunds_files      = [];
 my $outdirs           = [];
-my $min_mean_abund    = 10;
+#my $min_mean_abund    = 10;
+my($min_mean_abund);
 my $max_dynsim        = 0.8;
 my $min_seqsim        = 0.9;
 my $filetype          = 'auto';
@@ -88,7 +89,7 @@ my $append_abunds     = 0;
 
 #Command line parameters
 my $GetOptHash =
-  {'i|input-file=s'         => sub {push(@$input_files,    #REQUIRED unless <>
+  {'i|seq-file=s'           => sub {push(@$input_files,    #REQUIRED unless <>
 					 [sglob($_[1])])}, #        is supplied
    '<>'                     => sub {checkFileOpt($_[0],1);
 				    push(@$input_files,    #REQUIRED unless -i
@@ -99,10 +100,11 @@ my $GetOptHash =
 					 [sglob($_[1])])},
    'outdir=s'               => sub {push(@$outdirs,        #OPTIONAL [none]
 					 [sglob($_[1])])},
-   'a|min-mean-abundance=s' => \$min_mean_abund,           #OPTIONAL [10]
+   'a|min-mean-abundance=s' => \$min_mean_abund,           #OPTIONAL [1% total/
+                                                           #       num_samples]
    'x|max-dynamical-' .                                    #OPTIONAL [0.8]
-   'similarity'             => \$max_dynsim,
-   'n|min-seq-similarity'   => \$min_seqsim,               #OPTIONAL [0.9]
+   'similarity=s'           => \$max_dynsim,
+   'n|min-seq-similarity=s' => \$min_seqsim,               #OPTIONAL [0.9]
    't|sequence-filetype=s'  => \$filetype,                 #OPTIONAL [auto]
 				                           #(fasta,fastq,auto)
    'p|abundance-pattern=s'  => \$abundance_pattern,        #OPTIONAL
@@ -168,17 +170,31 @@ if(scalar(@$input_files) == 0 && isStandardInputFromTerminal())
 
 if(scalar(@$input_files) == 0)
   {
-    error('No input files (-i) detected.');
+    error('No input sequence files (-i) detected.');
     usage(1);
     quit(-7);
   }
 
-if(scalar(@$abunds_files) == 0 && scalar(@$input_files) < 6)
+if(#There are no abundance files
+   scalar(@$abunds_files) == 0 &&
+   ((#All input file sets contain only 1 file
+     scalar(grep {scalar(@$_) > 1} @$input_files) == 0 &&
+     #There are fewer than 6 input file sets
+     scalar(@$input_files) < 6) ||
+    (#There's at least 1 input file set with more than 1 file
+     scalar(grep {scalar(@$_) > 1} @$input_files) &&
+     #There's at least 1 input file set with fewer than 6 files
+     scalar(grep {scalar(@$_) < 6} @$input_files)
+    )))
   {
-    error('Not enough sample files supplied (-i).  Need at least 6 in order ',
-	  'to calculate dynamical similarity.  Use --force to try anyway.');
+    error('Not enough abundance data supplied (-s).  You must either provide ',
+	  'a file of sample sequence abundances (-s) or a series of sample ',
+	  'sequence files (-i) with abundances on the deflines (see -p).  At ',
+	  'least 6 samples in either case are required (per output file or ',
+	  'set of input files (provided by multiple -i flags)) in order to ',
+	  'calculate dynamical similarity.  Use --force to try anyway.');
     usage(1);
-    quit(7);
+    quit(1);
   }
 
 #The number of output files and abundance trace files must be the same if they
@@ -195,15 +211,16 @@ if(scalar(@$output_files) && scalar(@$abunds_files) &&
       {
 	error("The number of abundance trace files (-s) must be the same as ",
 	      "the number of output files (-o) or 1.");
-	quit(6);
+	quit(2);
       }
   }
 
-if($min_mean_abund < 0 || $min_mean_abund !~ /^(\d+\.?\d*|\d*\.?\d+)$/)
+if(defined($min_mean_abund) &&
+   ($min_mean_abund < 0 || $min_mean_abund !~ /^(\d+\.?\d*|\d*\.?\d+)$/))
   {
-    error("Invalid minimum average abundance (-a): [$min_mean_abund].  Must ",
-	  "be an unsigned number without an exponent.");
-    quit(1);
+    error("Invalid minimum mean abundance (-a): [$min_mean_abund].  Must be ",
+	  "an unsigned number without an exponent.");
+    quit(3);
   }
 
 if($max_dynsim < 0 || $max_dynsim > 2 ||
@@ -212,7 +229,7 @@ if($max_dynsim < 0 || $max_dynsim > 2 ||
     error("Invalid maximum dynamic similarity (-x): [$max_dynsim].  Must be ",
 	  "an unsigned number between 0 and 2 (inclusive) without an ",
 	  "exponent.");
-    quit(2);
+    quit(4);
   }
 
 if($min_seqsim < 0 || $min_seqsim > 1 ||
@@ -221,7 +238,7 @@ if($min_seqsim < 0 || $min_seqsim > 1 ||
     error("Invalid minimum sequence similarity (-n): [$min_seqsim].  Must be ",
 	  "an unsigned number between 0 and 1 (inclusive) without an ",
 	  "exponent.");
-    quit(3);
+    quit(5);
   }
 
 #The tempdir is invalid
@@ -243,7 +260,7 @@ if(!defined($tmpdir) || $tmpdir eq '' || !(-e $tmpdir))
 	      (defined($tmpdir) ? ": [$tmpdir]" : '')," is invalid.  Use ",
 	      "--tmpdir and --tmp-suffix to manage temporary data (necessary ",
 	      "for running ublast).");
-	quit(4);
+	quit(6);
       }
   }
 
@@ -257,13 +274,13 @@ else
   {
     error("Unrecognized file type: [$filetype].  Must be 'fasta', 'fastq', ",
 	  "or 'auto'.");
-    quit(5);
+    quit(7);
   }
 
 if($abundance_pattern =~ /^\s*$/)
   {
     error("-p cannot be an empty string.");
-    quit(6);
+    quit(8);
   }
 elsif($abundance_pattern !~ /(?<!\\)\((?!\?[adluimsx\-\^]*:)/)
   {$abundance_pattern = '(' . $abundance_pattern . ')'}
@@ -275,9 +292,8 @@ if($seq_id_pattern ne '' &&
 #Require an output file if an outdir has been supplied
 if(scalar(@$outdirs) && scalar(@$output_files) == 0)
   {
-    error("An outfile suffix (-o) is required if an output directory ",
-	  "(--outdir) is supplied.  Note, you may supply an empty string ",
-	  "to name the output files the same as the input files.");
+    error("An outfile (-o) is required if an output directory (--outdir) is ",
+	  "supplied.");
     quit(-8);
   }
 
@@ -285,27 +301,12 @@ if(scalar(@$outdirs) && scalar(@$output_files) == 0)
 $usearch = getUsearchExe($usearch);
 if(incompatible($usearch))
   {
-    error("usearch executable: [$usearch] error.");
-    quit(7);
+    error("Required executables and/or modules missing.  Unable to proceed.");
+    quit(9);
   }
 
 if($processes <= 0)
-  {
-    if(checkParallelAbility())
-      {$processes = getNumCores()}
-    else
-      {$processes = 1}
-  }
-if($processes > 1)
-  {
-    unless(checkParallelAbility())
-      {
-	error('One or both of the required modules: [IO::Pipe::Producer, ',
-	      'IO::Select] is missing.  Unable to run in parallel mode.  ',
-	      'Please use `--parallel-processes 1` to proceed.');
-	quit(3);
-      }
-  }
+  {$processes = getNumCores()}
 
 if($usearch_col_str !~ /(\A|\+)query(\Z|\+)/  ||
    $usearch_col_str !~ /(\A|\+)target(\Z|\+)/ ||
@@ -322,7 +323,7 @@ if($usearch_col_str !~ /(\A|\+)query(\Z|\+)/  ||
 	  "specified (-userfields).  The required fields are (in no ",
 	  "particular order): [query+target+id+ql+qlo+qhi+tl+tlo+thi+",
 	  "evalue].");
-    quit(4);
+    quit(10);
   }
 
 my $col_num = 0;
@@ -434,7 +435,7 @@ if($usearch_opts ne '')
       }
     if($usearch_opts =~ /-quiet\b/i)
       {$quiet_manual = 1}
-    quit(5) if($bad_uopts);
+    quit(11) if($bad_uopts);
   }
 
 ##
@@ -499,7 +500,7 @@ foreach my $set_num (0..$#$input_file_sets)
     if(!exists($file_cnt->{$output_file}))
       {$file_cnt->{$output_file} = 0}
 
-    my $seq_recs = getCheckAllSeqRecs($input_file,$min_mean_abund);
+    my $seq_recs = getCheckAllSeqRecs($input_file);
 
     if(scalar(@$seq_recs) == 0)
       {
@@ -507,6 +508,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	next;
       }
 
+    #If abundance files were supplied, retrieve the abundance values
     if(defined($abunds_file))
       {
 	if(!exists($abunds_hash->{$abunds_file}))
@@ -521,13 +523,12 @@ foreach my $set_num (0..$#$input_file_sets)
 	  }
       }
 
-    #Put abundance data in with the related sequence data & sum them
+    #For each sequence
     foreach my $seq_rec (@$seq_recs)
       {
 	my $id = getID($seq_rec);
 
-	#If there's an abundance file, we should be reading a global sequence
-	#library file, so just assign the abundance values to the sequence
+	#If there's an abundance file, merge the abundance values
 	if(defined($abunds_file))
 	  {
 	    #It's OK to have more sequences than abundance traces.  We're going
@@ -543,23 +544,29 @@ foreach my $set_num (0..$#$input_file_sets)
 
 	    if(exists($abunds_hash->{$abunds_file}->{$id}))
 	      {
+		#This will be used for error checking later
 		$seq_check->{$output_file}->{IDS}->{$id}                = 1;
 		$seq_check->{$output_file}->{SEQFILES}->{$input_file}   = 1;
 		$seq_check->{$output_file}->{ABUNDFILE}->{$abunds_file} = 1;
 
+		#Save/update the sequence/abundance data
 		$seq_hash->{$output_file}->{$id}->{SEQ}      = $seq_rec->[1];
 		$seq_hash->{$output_file}->{$id}->{ABUNDS}   =
 		  $abunds_hash->{$abunds_file}->{$id}->{ABUNDS};
 		$seq_hash->{$output_file}->{$id}->{ABUNDSUM} =
 		  $abunds_hash->{$abunds_file}->{$id}->{ABUNDSUM};
 	      }
+	    #Skip any sequences from the sequence file that are not in the
+	    #abundance file, since this comes from getReals and represents a
+	    #subset of sequences
 	  }
-	#Otherwise, we're parsing out the abundances from sample files...
+	#Otherwise, we're parsing out the abundances from sample files and
+	#using everything
 	else
 	  {
 	    my $abund = getAbund($seq_rec);
 
-	    #We are pushing abundances onto each sequences abundance array as
+	    #We are pushing abundances onto each sequence's abundance array as
 	    #we encounter them file by file.  Some files might have 0
 	    #occurrences of a particular sequence, so when that happens, we
 	    #need to fill in 0s for all those prior files in which a particular
@@ -587,12 +594,14 @@ foreach my $set_num (0..$#$input_file_sets)
       }
 
     $file_cnt->{$output_file}++;
+    debug("FILE COUNT FOR OUTFILE: [$output_file]: [",
+	  "$file_cnt->{$output_file}].") if($DEBUG > 1);
   }
 
 if(scalar(grep {$file_cnt->{$_}} keys(%$file_cnt)) == 0)
   {
-    error("Unable to parse any of the input files.");
-    quit(5);
+    error("Unable to parse any of the sequence files.");
+    quit(12);
   }
 
 #Now filter everything for mean abundance.  Of the ones that pass, the
@@ -600,8 +609,8 @@ if(scalar(grep {$file_cnt->{$_}} keys(%$file_cnt)) == 0)
 #zeroes.
 foreach my $output_file (keys(%$seq_hash))
   {
-    my($abunds_file);
-    #If abundance files were supplied, make sure their sequences were found
+    my($abunds_file,$num_samples);
+    #If abundance files were supplied, make sure everything is OK
     if(scalar(@$abunds_files))
       {
 	#There should only be 1 abundance file for every output file
@@ -614,6 +623,14 @@ foreach my $output_file (keys(%$seq_hash))
 	    next;
 	  }
 	$abunds_file = (keys(%{$seq_check->{$output_file}->{ABUNDFILE}}))[0];
+
+	#Get the number of samples from an arbitrary ID
+	foreach my $id (keys(%{$seq_hash->{$output_file}}))
+	  {
+	    $num_samples =
+	      scalar(@{$seq_hash->{$output_file}->{$id}->{ABUNDS}});
+	    last;
+	  }
 
 	#Gather any IDs that were missing from the sequence file(s)
 	my $missing_ids = [];
@@ -639,38 +656,63 @@ foreach my $output_file (keys(%$seq_hash))
 	    next;
 	  }
       }
+    else
+      {$num_samples = $file_cnt->{$output_file}}
 
-    #Delete any IDs that don't have the min mean abundance
+    #Determine the minimum mean abundance
+    my $total_abund = 0;
+    $total_abund += $seq_hash->{$output_file}->{$_}->{ABUNDSUM}
+      foreach(keys(%{$seq_hash->{$output_file}}));
+    my $local_min_mean_abund = (defined($min_mean_abund) ? $min_mean_abund :
+			        int($total_abund * 0.01 / $num_samples));
+
+    verbose("Total abundance of all sequences/samples = [$total_abund].\n",
+	    "Minimum mean abundance: [$local_min_mean_abund].");
+
+    #Enforce the minimum mean abundance
     foreach my $id (keys(%{$seq_hash->{$output_file}}))
       {
-	if(($seq_hash->{$output_file}->{$id}->{ABUNDSUM} /
-	    $file_cnt->{$output_file}) < $min_mean_abund)
+	debug("AVERAGE ABUNDANCE OF [$id]: ((",
+	      "$seq_hash->{$output_file}->{$id}->{ABUNDSUM} / ",
+	      "$num_samples) < $local_min_mean_abund).") if($DEBUG > 1);
+	if(($seq_hash->{$output_file}->{$id}->{ABUNDSUM} / $num_samples) <
+	   $local_min_mean_abund)
 	  {
 	    delete($seq_hash->{$output_file}->{$id});
 	    next;
 	  }
-	my $array_diff = $file_cnt->{$output_file} -
-	  scalar(@{$seq_hash->{$output_file}->{$id}->{ABUNDS}});
-	if($array_diff)
-	  {push(@{$seq_hash->{$output_file}->{$id}->{ABUNDS}},
-		((0) x $array_diff))}
+
+	#If we've parsed the abundances from the sequence files (i.e. there is
+	#no abundance file), we need to top off any missing abundances after
+	#the last sequence file was read
+	if(!defined($abunds_file))
+	  {
+	    my $array_diff = $file_cnt->{$output_file} -
+	      scalar(@{$seq_hash->{$output_file}->{$id}->{ABUNDS}});
+	    if($array_diff)
+	      {push(@{$seq_hash->{$output_file}->{$id}->{ABUNDS}},
+		    ((0) x $array_diff))}
+	  }
       }
 
+    #If there are too few IDs left after enforcing min mean abundance
     if(scalar(keys(%{$seq_hash->{$output_file}})) < 2)
       {
 	error((scalar(keys(%{$seq_hash->{$output_file}})) == 1 ?
 	       "Only 1 sequence" : "None of the sequences"),
 	      " had the minimum mean abundance across all the samples (-n): ",
-	      "[$min_mean_abund].  Please make sure that your abundance ",
-	      "values are on the sequence deflines (see -p) or lower the ",
-	      "minimum mean abundance (see -n).");
+	      "[$local_min_mean_abund].  Please make sure that your ",
+	      "abundance values are on the sequence deflines (see -p) or ",
+	      "lower the minimum mean abundance (see -n).");
 	cleanTmpFiles();
-	quit(6);
+	quit(13);
       }
 
+    #Retrieve similar sequence pairs
     my $seq_pair_hash = getSimilarSeqPairs($seq_hash->{$output_file},
 					   $min_seqsim);
 
+    #Clean up the temporary files created for usearch
     cleanTmpFiles();
 
     debug("Similar sequence pairs ([",scalar(keys(%$seq_pair_hash)),
@@ -683,18 +725,24 @@ foreach my $output_file (keys(%$seq_hash))
 			"\n"}
 	  keys(%$seq_pair_hash)) if($DEBUG);
 
+    #Further filter the similar sequence pairs by abundance dissimilarity
     my $abund_pair_hash = getDissimilarAbundPairs($seq_pair_hash,
 						  $seq_hash->{$output_file},
 						  $max_dynsim);
 
+    #Open the output file
     if($output_file ne 'STDOUT')
       {openOut(*PAIRS,$output_file)}
 
     reportPairs($abund_pair_hash,
 		$seq_pair_hash,
 		$seq_hash->{$output_file},
-	        defined($abunds_file) ? $abunds_hash->{$abunds_file} : {});
+	        (defined($abunds_file) ? $abunds_hash->{$abunds_file} : {}),
+	        undef,
+	        undef,
+	        $local_min_mean_abund);
 
+    #Close the output file
     if($output_file ne 'STDOUT')
       {closeOut(*PAIRS)}
   }
@@ -4147,28 +4195,16 @@ rleach\@genomics.princeton.edu
                 abundance (default: 10), maximum dynamical similarity (default:
                 0.8), and minimum sequence similarity/identity (default: 0.9).
                 Pairs of sequences that are very similar but exhibit different
-                behavior (in terms of abundance in a population), e.g. in a
-                time-series, are output.
+                behavior (in terms of abundance in a population, e.g. in a
+                time-series) are output.
 
-                This script can obtain its input in 2 different ways:
+                This script will parse abundance values from a summary
+                abundance file (see -s) of "real" sequences (as is produced by
+                getReals.pl using its -s option) and retrieve their sequences
+                from a single global library sequence file (see -i).  Note that
+                the IDs parsed from both file types must match.
 
-                  1. It can parse sequences and their abundances from a series
-                     of sample sequence files (see -i) that have been
-                     dereplicated and contain abundance values on the defline
-                     (see -p) E.g. The .lib files that come out of
-                     mergeSeqs.pl.
-
-                  2. It can parse sequences from a single global library
-                     sequence file (see -i) and obtain their abundance values
-                     from a summary abundance file (see -s).  E.g. The -s file
-                     that comes from running getReals.pl.  In this mode, output
-                     is restricted to pairs of sequences that exist in the -s
-                     file.  Note that the IDs parsed from both file types must
-                     match.  Alternatively, you may supply all the sample files
-                     (as in #1 above) along with a -s file if you do not have a
-                     global library file and the result will be the same.
-
-                This script represents a last optional step of an 8 step
+                This script represents the last optional step of an 8 step
                 process in the package called 'cff' (cluster free filtering).
                 Please refer to the README for general information about the
                 package.
@@ -4205,20 +4241,24 @@ lib_65	15  	2   	1   	2   	12  	9   	2   	6   	10  	2
 
 * OUTPUT FORMAT: Tab-delimited text format.  Rows are sorted by ascending
   (-o)           absolute abundance correlation value.  usearch output can be
-                 appended by supplying --append-usearch.  Abundance values of
-                 each of a pair can be appended by supplying --appeand-abunds.
-                 Example of default output (with --header):
+                 appended by supplying --append-usearch.  Per-sample abundance
+                 values of each of a pair can be appended by supplying
+                 --appeand-abunds.  Example of default output (with --header):
 
-                 #Greater-Abundance-ID	Lesser-Abundance-ID	Dynamical-Similarity	Sequence-Similarity
-                 lib_20	lib_101	-0.00107	1
-                 lib_20	lib_75	-0.00175	0.973
-                 lib_71	lib_124	0.0045	1
-                 lib_20	lib_111	0.0071	1
-                 lib_20	lib_76	-0.00722	1
-                 lib_76	lib_78	-0.00931	1
-                 lib_44	lib_108	0.012	1
-                 lib_91	lib_140	0.012	1
-                 lib_44	lib_82	0.0132	0.96
+                 #Greater-Abundance-ID	Lesser-Abundance-ID	Dynamical-Similarity	Sequence-Similarity	Greater-Total-Abundance	Lesser-Total-Abundance
+                 lib_1	lib_2	-0.751	0.992	21950	15451
+                 lib_1	lib_3	0.587	0.939	21950	11816
+                 lib_2	lib_3	-0.00162	0.931	15451	11816
+                 lib_1	lib_4	0.395	0.946	21950	9574
+                 lib_3	lib_4	-0.233	0.946	11816	9574
+                 lib_2	lib_4	-0.457	0.939	15451	9574
+
+                 Output is sorted by decreasing Lesser-Total-Abundance,
+                 decreasing Sequence-Similarity, decreasing Greater-Total-
+                 Abundance, increasing Dynamical-Similarity, then the IDs
+                 themselves.  Note that Dynamical Similarity should be
+                 considered a binary value.  Either the abundance traces are
+                 similar (and thus filtered out) or they are dissimilar.
 
 end_print
 
@@ -4254,7 +4294,7 @@ $extended_header
 * ADVANCED FILE I/O FEATURES:
 
 Sets of input files, each with different output files/directories can be
-supplied.  Supply each file set with an additional -i (or --input-file) flag.
+supplied.  Supply each file set with an additional -i (or --seq-file) flag.
 Wrap each set of files in quotes and separate them with spaces.
 
 Each output file/directory must be supplied in the same relative order so that
@@ -4344,12 +4384,10 @@ sub usage
 	if(!$local_extended)
 	  {
 	    print << 'end_print';
+     -s                   REQUIRED Summary abundance file(s).  See --help for
+                                   file format.
      -i                   REQUIRED Input sequence file(s).  See --help for file
                                    format.
-     -s                  *REQUIRED Summary abundance file.  See --help for file
-                                   format.  *Optional if -i is supplied
-                                   multiple sample sequence files with
-                                   abundances on the deflines.
      -o                   OPTIONAL [stdout] Output file.
      -a                   OPTIONAL [10] The minimum average abundance at or
                                    above which a sequence will be considered.
@@ -4372,7 +4410,18 @@ end_print
 	else #Advanced options/extended usage output
 	  {
 	    print << 'end_print';
-     -i,--input-file      REQUIRED Input fasta or fastq sequence file(s).  This
+     -s,--abunds-file    *REQUIRED Input file of abundances of "real" sequences
+                                   in multiple samples.  This is the file you
+                                   would get from running getReals.pl with the
+                                   -s option.  There must be either 1 total
+                                   abundance files or 1 abundance file for
+                                   every outfile (-o).
+                                   *If you wish to interrogate all sequences,
+                                   regardless of whether they are real or not
+                                   and you supply multiple sample sequence
+                                   files with abundances on the deflines to -i,
+                                   -s is not required.
+     -i,--seq-file        REQUIRED Input fasta or fastq sequence file(s).  This
                                    may be a global library sequence file or a
                                    series of sample sequence files.  In either
                                    case, the union of all sequences are used.
@@ -4380,12 +4429,6 @@ end_print
                                    [A-Z].{?,??}.fa").  See --extended --help
                                    for file format and advanced usage examples.
                                    *No flag required.
-     -s,--abunds-file    *REQUIRED Summary abundance file.  This is the file
-                                   you would get from running getReals.pl with
-                                   the -s option.
-                                   *Optional if -i is supplied multiple sample
-                                   sequence files with abundances on the
-                                   deflines.
      -o,--outfile         OPTIONAL [stdout] Output file.  Will not overwrite
                                    without --overwrite.  Default behavior
                                    prints output to standard out.  See
@@ -4397,10 +4440,19 @@ end_print
                                    Creates directories specified, but not
                                    recursively.  Also see --extended --help for
                                    advanced usage examples.
-     -a,                  OPTIONAL [10] The minimum average abundance at or
-     --min-mean-abundance          above which a sequence will be considered.
-                                   See -x and -n for further criteria.  A value
-                                   of 0 means use all sequences.
+     -a,                  OPTIONAL [see footnote*] The minimum average
+     --min-mean-abundance          abundance at or above which a sequence will
+                                   be considered.  See -x and -n for further
+                                   criteria.  A value of 0 means use all
+                                   sequences.
+                                   *The default value is a percentage of the
+                                   total abundance of all sequences across all
+                                   samples (divided by the number of saples),
+                                   but when this option is used, the minimum
+                                   should be expressed in raw abundance of an
+                                   individual sequence per sample.  To see the
+                                   default calculated minimum, use --verbose
+                                   mode.
      -x,                  OPTIONAL [0.8] Maximum dynamical similarity of the
      --max-dynamical-              abundances across all samples of two
        similarity                  sequences in order for the pair to be
@@ -4488,7 +4540,7 @@ end_print
                                    that cannot be changed: -userout (which
                                    defaults to a temporary file) and -strand
                                    (plus).  These options can be changed using
-                                   --usearch-opts-str: -accel (0.25), -evalue
+                                   --usearch-opts-str: -accel (0.6), -evalue
                                    (10), and -db.  None of the default options
                                    can be removed, though any option may be
                                    added.  Here is an example of a usearch
@@ -4497,7 +4549,7 @@ end_print
                                    usearch -ublast 1234567.tmp.fna
                                      -db 12345671.tmp.fna
                                      -userout 12345672.tmp.fna -evalue 10
-                                     -id 0.8 -accel 0.25 -strand plus
+                                     -id 0.8 -accel 0.6 -strand plus
                                      -threads 4 -userfields query+target+id+ql\
                                      +qlo+qhi+tl+tlo+thi+evalue -query_cov 0.8
                                      -target_cov 0.8 -quiet
@@ -4592,7 +4644,6 @@ end_print
 sub getCheckAllSeqRecs
   {
     my $input_file     = $_[0];
-    my $min_abund      = $_[1];
     my $seq_recs       = [];
     my $seq_hash       = {};
 
@@ -5229,7 +5280,7 @@ sub getNextSeqRec
 	  {
 	    error("`-t auto` cannot be used when the input file is supplied ",
 		  "on standard input.  Please supply the exact file type.");
-	    quit(7);
+	    quit(14);
 	  }
 
 	if(!-e $input_file || $input_file =~ / /)
@@ -5237,7 +5288,7 @@ sub getNextSeqRec
 	    error("`-t auto` cannot be used when the input file does not ",
 		  "exist or has a space in its name.  Please supply the ",
 		  "exact file type.");
-	    quit(8);
+	    quit(15);
 	  }
 
 	my $num_fastq_defs =
@@ -5427,6 +5478,31 @@ sub incompatible
 	       "7.0.1090_i86osx32.  It may not work properly with the ",
 	       "version you are using.")}
 
+    unless(eval('use IO::Pipe::Producer;1;') ||
+	   eval('use local::lib;use IO::Pipe::Producer;1;'))
+      {
+	error('Perl Module [IO::Pipe::Producer] not found.');
+	return(1);
+      }
+    unless(eval('use IO::Select;1;') ||
+	   eval('use local::lib;use IO::Select;1;'))
+      {
+	error('Perl Module [IO::Select] not found.');
+	return(1);
+      }
+    unless(eval('use Math::Random qw(:all);1;') ||
+	   eval('use local::lib;use Math::Random qw(:all);1;'))
+      {
+	error('Perl Module [Math::Random] not found.');
+	return(1);
+      }
+    unless(eval("use Statistics::Distributions;1;") ||
+	   eval("use local::lib;use Statistics::Distributions;1;"))
+      {
+	error('Perl Module [Statistics::Distributions] not found.');
+	return(1);
+      }
+
     return(0);
   }
 
@@ -5474,24 +5550,6 @@ sub getNumCores
     $num_cores = $cpu->count;
     debug("Cores: [$num_cores].") if($DEBUG > 1);
     return($num_cores);
-  }
-
-#Sees if the required modules are present in order to do ublasts in parallel
-sub checkParallelAbility
-  {
-    unless(eval('use IO::Pipe::Producer;1;') ||
-	   eval('use local::lib;use IO::Pipe::Producer;1;'))
-      {
-	error('Perl Module [IO::Pipe::Producer] not found.');
-	return(0);
-      }
-    unless(eval('use IO::Select;1;') ||
-	   eval('use local::lib;use IO::Select;1;'))
-      {
-	error('Perl Module [IO::Select] not found.');
-	return(0);
-      }
-    return(1);
   }
 
 #Returns: 2D array of hash keys (i.e. sequence IDs)
@@ -5907,7 +5965,7 @@ sub getSimilarSeqPairs
     my $usearch_params = defined($usearch_opts) ? $usearch_opts : '';
     my $usearch_exe    = $usearch;
     my $expect         = 10;
-    my $accel          = 0.25;
+    my $accel          = 0.6;
     my $strand         = 'plus';
     my $query_cov      = $min_identity;
     my $target_cov     = $min_identity;
@@ -5930,8 +5988,14 @@ sub getSimilarSeqPairs
 
     my $outfile = getTempFilename();
 
-    use IO::Pipe::Producer;
-    use IO::Select;
+    eval('use IO::Pipe::Producer;1;') ||
+      eval('use local::lib;use IO::Pipe::Producer;1;') ||
+	error('Perl Module [IO::Pipe::Producer] not found.') ||
+	  quit(16);
+    eval('use IO::Select;1;') ||
+      eval('use local::lib;use IO::Select;1;') ||
+	error('Perl Module [IO::Select] not found.') ||
+	  quit(17);
 
     my $obj = new IO::Pipe::Producer();
 
@@ -6057,8 +6121,13 @@ sub getSimilarSeqPairs
 	    my $query_id   = $data->[$query_col - 1];
 	    my $subject_id = $data->[$subject_col - 1];
 
+	    debug("Evaluating query/subject [$query_id/$subject_id] hit: [",
+		  join(' ',@$data),"].") if($DEBUG > 5);
+
 	    #Skip hits to self
 	    next if($query_id eq $subject_id);
+
+	    debug("Not hit to self.") if($DEBUG > 5);
 
 	    #Always order the IDs by decreasing total abundance, then
 	    #increasing ascii ID so that reciprocal duplicates are merged
@@ -6075,6 +6144,8 @@ sub getSimilarSeqPairs
 	    #getUblastIdentity emits an error if $identity is not defined
 	    next if(!defined($identity));
 
+	    debug("Indentity is defined.") if($DEBUG > 5);
+
 	    if($line =~ /\S/ &&
 	       $identity >= $min_identity &&
 	       (!exists($seq_pair_hash->{$first}) ||
@@ -6085,9 +6156,13 @@ sub getSimilarSeqPairs
 		newHitIsBetter($data,
 			       $seq_pair_hash->{$first}->{$second}->{HIT})))
 	      {
+		debug("Hit is good.") if($DEBUG > 5);
+
 		$seq_pair_hash->{$first}->{$second}->{HIT}      = $data;
 		$seq_pair_hash->{$first}->{$second}->{IDENTITY} = $identity;
 	      }
+
+	    debug("Hit eval. done.") if($DEBUG > 5);
 	  }
 	elsif($line !~ /^usearch|^\s*$/)
 	  {error("Could not parse usearch output line: [$line].")}
@@ -6482,7 +6557,10 @@ sub dynamicalSimilarityCorrelation
 
 sub poissonResample
   {
-    use Math::Random qw(:all);
+    eval('use Math::Random qw(:all);1;') ||
+      eval('use local::lib;use Math::Random qw(:all);1;') ||
+	error("Perl module [Math::Random] not found.") ||
+	  quit(18);
     my $not_all_zeroes = [map {random_poisson(1, $_)} @{$_[0]}];
     while(!scalar(grep {$_} @$not_all_zeroes))
       {$not_all_zeroes = [map {random_poisson(1, $_)} @{$_[0]}]}
@@ -6496,8 +6574,8 @@ sub getPearson
     my $local_quiet   = $_[2];
     my($corr_coef,$p_val);
 
-#    debug("Called with Targets Values: [@$targets] and Non-Target Values: ",
-#	  "[@$non_targets].");
+    debug("Called with Targets Values: [@$targets] and Non-Target Values: ",
+	  "[@$non_targets].") if($DEBUG > 99);
 
     if(scalar(@$targets) != scalar(@$non_targets))
       {
@@ -6516,7 +6594,7 @@ sub getPearson
 	eval("use Statistics::Distributions;1;") ||
 	  eval("use local::lib;use Statistics::Distributions;1;") ||
 	    error("Perl module [Statistics::Distributions] not found.") ||
-	      quit(5);
+	      quit(19);
 
 	my $adjusted_targets     = [];
 	my $adjusted_non_targets = [];
@@ -6601,25 +6679,27 @@ sub getPearson
 	$corr_coef = (($num_samples * $mult_sum) - ($targ_sum * $nontarg_sum))
 	  / sqrt($denom_sqr);
 
-	my $degrees_of_freedom = $num_samples - 2;
+#Commented out for now - we're not reporting P-Val (yet)
 
-	#Check the denominator
-	if(abs($corr_coef) >= 1)
-	  {
-	    warning("Got a 0 (or less) for the p-value's denominator: ",
-		    "[sqrt($degrees_of_freedom / (1 - $corr_coef**2))] using ",
-		    "equation: [sqrt(degrees_of_freedom / (1 -",
-		    " corr_coef**2))] of the student t value calculation ",
-		    "from target values: [",join(', ',@$targets),"] and non-",
-		    "target values: [",join(', ',@$non_targets),"].")
-              unless($local_quiet);
-	    return((abs($corr_coef) == 1 ? $corr_coef : undef),undef);
-	  }
-
-	my $student_t = sqrt($degrees_of_freedom / (1 - $corr_coef**2));
-
-	$p_val = Statistics::Distributions::tprob($degrees_of_freedom,
-						  $student_t);
+#	my $degrees_of_freedom = $num_samples - 2;
+#
+#	#Check the denominator
+#	if(abs($corr_coef) >= 1)
+#	  {
+#	    warning("Got a 0 (or less) for the p-value's denominator: ",
+#		    "[sqrt($degrees_of_freedom / (1 - $corr_coef**2))] using ",
+#		    "equation: [sqrt(degrees_of_freedom / (1 -",
+#		    " corr_coef**2))] of the student t value calculation ",
+#		    "from target values: [",join(', ',@$targets),"] and non-",
+#		    "target values: [",join(', ',@$non_targets),"].")
+#              unless($local_quiet);
+#	    return((abs($corr_coef) == 1 ? $corr_coef : undef),undef);
+#	  }
+#
+#	my $student_t = sqrt($degrees_of_freedom / (1 - $corr_coef**2));
+#
+#	$p_val = Statistics::Distributions::tprob($degrees_of_freedom,
+#						  $student_t);
       }
 
     return($corr_coef,$p_val);
@@ -6672,14 +6752,17 @@ sub getDissimilarAbundPairs
 #$max_dynsim, $min_seqsim
 sub reportPairs
   {
-    my $abund_pair_hash = $_[0];
-    my $seq_pair_hash   = $_[1];
-    my $seq_hash        = $_[2]; #$seq_hash->{ID}={ABUNDS=[],SEQ=str,ABUNDSUM}
-    my $abunds_hash     = $_[3];
-    my $local_usearch   = (defined($_[4]) ? $_[4] :
-			   (defined($append_usearch) ? $append_usearch : 0));
-    my $local_abunds    = (defined($_[5]) ? $_[5] :
-			   (defined($append_abunds) ? $append_abunds : 0));
+    my $abund_pair_hash      = $_[0];
+    my $seq_pair_hash        = $_[1];
+    my $seq_hash             = $_[2]; #->{ID}={ABUNDS=[],SEQ=str,ABUNDSUM}
+    my $abunds_hash          = $_[3];
+    my $local_usearch        = (defined($_[4]) ? $_[4] :
+				(defined($append_usearch) ?
+				 $append_usearch : 0));
+    my $local_abunds         = (defined($_[5]) ? $_[5] :
+				(defined($append_abunds) ?
+				 $append_abunds : 0));
+    my $local_min_mean_abund = $_[6];
 
     my $abund_cols = 0;
     my @pairs = ();
@@ -6689,10 +6772,12 @@ sub reportPairs
 	  {
 	    push(@pairs,[$greater_id,
 			 $lesser_id,
-			 sigdig($abund_pair_hash->{$greater_id}
-				->{$lesser_id},$sigdig),
-			 sigdig($seq_pair_hash->{$greater_id}->{$lesser_id}
-				->{IDENTITY},$sigdig)]);
+			 putZero(sigdig($abund_pair_hash->{$greater_id}
+					->{$lesser_id},$sigdig)),
+			 putZero(sigdig($seq_pair_hash->{$greater_id}
+					->{$lesser_id}->{IDENTITY},$sigdig)),
+			 $seq_hash->{$greater_id}->{ABUNDSUM},
+			 $seq_hash->{$lesser_id}->{ABUNDSUM}]);
 
 	    if($local_usearch)
 	      {push(@{$pairs[-1]},
@@ -6724,7 +6809,9 @@ sub reportPairs
 	print("#",join("\t",('Greater-Abundance-ID',
 			     'Lesser-Abundance-ID',
 			     'Dynamical-Similarity',
-			     'Sequence-Similarity')));
+			     'Sequence-Similarity',
+			     'Greater-Total-Abundance',
+			     'Lesser-Total-Abundance')));
 
 	if($local_usearch)
 	  {print("\tusearch[",join("\t",split(/\+/,$usearch_col_str)),']')}
@@ -6747,13 +6834,24 @@ sub reportPairs
     if(scalar(@pairs))
       {print(join("\n",
 		  map {join("\t",@$_)}
-		  sort {abs($a->[2]) <=> abs($b->[2]) || $a->[3] cmp $b->[3] ||
-			  $a->[0] cmp $b->[0] || $a->[1] cmp $b->[1]} @pairs),
+		  sort {#Order by...
+		    #Descending abundance of the lesser abundant seq
+		    $b->[5] <=> $a->[5] ||
+		      #descending identity
+		      $b->[3] <=> $a->[3] ||
+			#Descending abundance of the greater abundant seq
+			$b->[4] <=> $a->[4] ||
+			  #Ascending dynamical similarity
+			  $a->[2] <=> $b->[2] ||
+			    #greater ID
+			    $a->[0] cmp $b->[0] ||
+			      #lesser ID
+			      $a->[1] cmp $b->[1]} @pairs),
 	     "\n")}
     else
       {warning("No pairs that meet all the cutoffs were found.  Please ",
 	       "adjust the cutoffs and re-try.  Current cutoff thresholds: ",
-	       "-a/--min-mean-abundance: [$min_mean_abund], ",
+	       "-a/--min-mean-abundance: [$local_min_mean_abund], ",
 	       "-x/--max-dynamical-similarity: [$max_dynsim], ",
 	       "-n/--min-seq-similarity: [$min_seqsim].")}
   }
@@ -6890,4 +6988,14 @@ sub getAbundanceTraces
       {error("No abundances were parsed from abundance file [$abunds_file].")}
 
     return($abunds_hash);
+  }
+
+#This subroutine will prepend (or insert) a 0 to a number beginning with a '.'
+#Does not work on exponent numbers (e.g. 1s^.5)
+sub putZero
+  {
+    my $num = $_[0];
+    if($num =~ /^-?\./)
+      {$num =~ s/\./0./}
+    return($num);
   }
