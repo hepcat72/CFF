@@ -42,8 +42,7 @@ WriteMakefile
                  'IO::Pipe::Producer'        => 2.0,  #OPTIONAL for filterIndels.pl & interestingPairs.pl
                  'Sys::Info'                 => 0.78, #OPTIONAL for filterIndels.pl & interestingPairs.pl
                  'Sys::MemInfo'              => 0.91, #OPTIONAL for filterIndels.pl
-                 'Math::Random'              => 0.71, #OPTIONAL for interestingPairs.pl
-                 'Statistics::Distributions' => 1.02  #OPTIONAL for interestingPairs.pl
+                 'Math::Random'              => 0.71  #OPTIONAL for interestingPairs.pl
                 },
    EXE_FILES => [ map { "src/$_" } @scripts ]
   );
