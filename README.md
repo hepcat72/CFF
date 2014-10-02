@@ -124,7 +124,6 @@ Once you have a cpan prompt, install each of these dependent modules one by one 
     install Sys::MemInfo
     install File::Which
     install Math::Random
-    install Statistics::Distributions
 
 You may already have some of these modules, but some might be too old, so note the version numbers.  Here is the required version information for each of the modules.
 
@@ -137,7 +136,6 @@ You may already have some of these modules, but some might be too old, so note t
     Sys::MemInfo               v0.91  Needed for filterIndels.pl
     File::Which                v1.09  Needed for all scripts use `which` without it
     Math::Random               v0.71  Needed for interestingPairs.pl
-    Statistics::Distributions  v1.02  Needed for interestingPairs.pl
 
 Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
 
@@ -162,18 +160,19 @@ Run these commands:
     cd samples
     tcsh run_example1.tcsh
 
-Example 1 is roughly equivalent to running the following commands (the difference is that when you run the example script, the output files will be neatly organized in a number of subdirectories so you can follow the logic more easily):
+Example 1 is roughly equivalent to running the following commands (the difference is that when you run the example script, the output files will be neatly organized in a number of subdirectories so you can follow the flow of logic more easily).  Note, $outdir = "Caporaso_FASTA_out".
 
-    outdir=Caporaso_FASTA_out
-    mergeSeqs.pl     Caporaso_FASTA/L6S2?_19???.fna -f example1.glib --outdir $outdir -o .lib -p ''
-    neighbors.pl     $outdir/example1.glib -o .nbrs
-    errorRates.pl    $outdir/example1.glib -n $outdir/example1.glib.nbrs -z 2 -o .erates
-    nZeros.pl        $outdir/L6S2?_19???.fna.lib -n $outdir/example1.glib.nbrs -r $outdir/example1.glib.erates -o .n0s
-    getCandidates.pl $outdir/L6S2?_19???.fna.lib.n0s -o .cands -f .rejects -h 30
-    getReals.pl      $outdir/L6S2?_19???.fna.lib.n0s.cands -d '$outdir/L6S2?_19???.fna.lib' -f $outdir/example1.glib -k 2
-    filterIndels.pl  $outdir/example1.glib.reals -o .filt -f .indels
+    mergeSeqs.pl        Caporaso_FASTA/L6S2?_19???.fna -f example1.glib --outdir $outdir -o .lib -p ''
+    neighbors.pl        $outdir/example1.glib -o .nbrs
+    errorRates.pl       $outdir/example1.glib -n $outdir/example1.glib.nbrs -z 2 -o .erates
+    nZeros.pl           $outdir/L6S2?_19???.fna.lib -n $outdir/example1.glib.nbrs -r $outdir/example1.glib.erates -o .n0s
+    getCandidates.pl    $outdir/L6S2?_19???.fna.lib.n0s -o .cands -f .rejects -h 30
+    getReals.pl         $outdir/L6S2?_19???.fna.lib.n0s.cands -d '$outdir/L6S2?_19???.fna.lib' -f $outdir/example1.glib -k 2
+    filterIndels.pl     $outdir/example1.glib.reals -o .filt -f .indels
+    cff2qiime.pl        $outdir/example1.glib.reals.filt
+    interestingPairs.pl $outdir/example1.glib -s $outdir/example1.glib.smry -o example1.glib.pairs
 
-Note that in the first command (mergeSeqs.pl), we turn off abundance value parsing from the fasta deflines by supplying -p ''.  While the command will work without -p '', it will generate an error because the default value for -p expects to see abundance patterns on deflines in the form "size=#;".  If you never intend to save abundance values on your deflines, you may supply --save-as-default -p '' to save the setting.
+Note that in the first command (mergeSeqs.pl), we turn off abundance value parsing from the fasta deflines by supplying -p ''.  While the command will work without -p '', it will generate an error because the default value expects to see abundance patterns on deflines in the form "size=#;".  If you never intend to save abundance values on your deflines, you may supply --save-as-default -p '' to save the setting.
 
 ### Example 2
 
@@ -183,6 +182,15 @@ Run these commands:
     tcsh run_example2.tcsh
 
 Example 2 runs CFF on FastQ test data. This executes pretty much the same commands, only it starts by performing minimal quality filtering using USEARCH (see [1]).
+
+### Example 3
+
+Run these commands:
+
+    cd samples
+    tcsh run_example3.tcsh
+
+Example 3 runs CFF on the gut samples test data. It runs the same analysis as example 2, but serves to demonstrate the value of the interestingPairs.pl script.  The samples are taken from a male and a female subject (see [1]), at 3 time points separated by 3 months, with a 7th "unknown" sample taken 2 months afterward.  The analysis shows that the dominant strain in the female samples and the dominant strain in the male samples differs by only one nucleotide for the two subjects. The pair of sequences are output by the interestingPairs.pl script.  The seventh "unknown" sample is confidently identified as coming from the male subject, because it has the male-subject-specific strain.  And indeed, this sample was taken from the male subject. This illustrates the utility of our method, stressing, in particular, that you don't even necessarily need a lot of samples to see meaningful features at the sub-OTU level.  Any other cluster-based method would have equated the two sequences differing by a single base.
 
 
 ## REFERENCES
