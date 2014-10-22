@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.4';
+my $software_version_number = '1.5';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -4328,20 +4328,20 @@ rleach\@genomics.princeton.edu
                     will be used if --header and --append-abunds are supplied.
                     Example:
 
-#ID   	5_77	5_78	5_79	5_80	5_81	5_82	5_83	5_84	5_85	5_86
-lib_73	0   	0   	0   	0   	0   	5   	4   	13  	21  	5   
-lib_7 	32  	24  	143 	104 	196 	57  	444 	401 	118 	235 
-lib_75	3   	17  	3   	11  	0   	10  	2   	0   	1   	0   
-lib_58	12  	17  	11  	11  	4   	11  	4   	0   	4   	2   
-lib_14	125 	82  	86  	38  	28  	94  	65  	30  	71  	36  
-lib_28	36  	22  	14  	23  	5   	60  	14  	4   	34  	11  
-lib_65	15  	2   	1   	2   	12  	9   	2   	6   	10  	2   
+                    #ID   	5_77	5_78	5_79	5_80	5_81	5_82	5_83	5_84	5_85	5_86
+                    lib_73	0   	0   	0   	0   	0   	5   	4   	13  	21  	5   
+                    lib_7 	32  	24  	143 	104 	196 	57  	444 	401 	118 	235 
+                    lib_75	3   	17  	3   	11  	0   	10  	2   	0   	1   	0   
+                    lib_58	12  	17  	11  	11  	4   	11  	4   	0   	4   	2   
+                    lib_14	125 	82  	86  	38  	28  	94  	65  	30  	71  	36  
+                    lib_28	36  	22  	14  	23  	5   	60  	14  	4   	34  	11  
+                    lib_65	15  	2   	1   	2   	12  	9   	2   	6   	10  	2   
 
 * OUTPUT FORMAT: Tab-delimited text format.  Rows are sorted by ascending
   (-o)           absolute abundance correlation value.  usearch output can be
                  appended by supplying --append-usearch.  Per-sample abundance
                  values of each of a pair can be appended by supplying
-                 --appeand-abunds.  Example of default output (with --header):
+                 --appeand-abunds.  Example of default output:
 
                  #Greater-Abundance-ID	Lesser-Abundance-ID	Dynamical-Similarity	Sequence-Similarity	Greater-Total-Abundance	Lesser-Total-Abundance
                  lib_1	lib_2	-0.751	0.992	21950	15451
@@ -4678,6 +4678,8 @@ end_print
                                    pair's abundance values.
      --header,--noheader  OPTIONAL [On] Print commented script version, date,
                                    and command line call to each output file.
+                                   This does not control the commented column
+                                   headers above the table output.
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
                                    Values less than 0 debug the template code
                                    that was used to create this script.
@@ -6902,32 +6904,29 @@ sub reportPairs
 	  }
       }
 
-    if($header)
+    print("#",join("\t",('Greater-Abundance-ID',
+			 'Lesser-Abundance-ID',
+			 'Dynamical-Similarity',
+			 'Sequence-Similarity',
+			 'Greater-Total-Abundance',
+			 'Lesser-Total-Abundance')));
+
+    if($local_usearch)
+      {print("\tusearch[",join("\t",split(/\+/,$usearch_col_str)),']')}
+
+    if($local_abunds)
       {
-	print("#",join("\t",('Greater-Abundance-ID',
-			     'Lesser-Abundance-ID',
-			     'Dynamical-Similarity',
-			     'Sequence-Similarity',
-			     'Greater-Total-Abundance',
-			     'Lesser-Total-Abundance')));
-
-	if($local_usearch)
-	  {print("\tusearch[",join("\t",split(/\+/,$usearch_col_str)),']')}
-
-	if($local_abunds)
-	  {
-	    $abund_cols--;
-	    print("\tGreater-Sample-Abundances[",
-		  join("\t",(exists($abunds_hash->{_HEADER_}) ?
-			     @{$abunds_hash->{_HEADER_}} : (1..$abund_cols))),
-		  "]\tLesser-Sample-Abundances[",
-		  join("\t",(exists($abunds_hash->{_HEADER_}) ?
-			     @{$abunds_hash->{_HEADER_}} : (1..$abund_cols))),
-		  ']');
-	  }
-
-	print("\n");
+	$abund_cols--;
+	print("\tGreater-Sample-Abundances[",
+	      join("\t",(exists($abunds_hash->{_HEADER_}) ?
+			 @{$abunds_hash->{_HEADER_}} : (1..$abund_cols))),
+	      "]\tLesser-Sample-Abundances[",
+	      join("\t",(exists($abunds_hash->{_HEADER_}) ?
+			 @{$abunds_hash->{_HEADER_}} : (1..$abund_cols))),
+	      ']');
       }
+
+    print("\n");
 
     if(scalar(@pairs))
       {print(join("\n",
