@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.6';
+my $software_version_number = '1.7';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -337,18 +337,22 @@ if(scalar(@$input_files) != scalar(@$drp_files))
       }
   }
 
-my $bad_indexes = [map {$_++} grep {scalar(@{$input_files->[$_]}) !=
-				      scalar(@{$drp_files->[$_]})}
+my $bad_indexes = [grep {scalar(@{$input_files->[$_]}) !=
+			   scalar(@{$drp_files->[$_]})}
 		   (0..$#{$input_files})];
 if(scalar(@$bad_indexes))
   {
-    error("These numbered pairs of -i and -d have a different number of ",
-	  "files: [",join(',',@$bad_indexes),"].  Each -i/-d bad pair has ",
-	  "this many files: [",
-	  join(',',(map {$_--;scalar(@{$input_files->[$_]}) . '/' .
+    error("The number of files supplied to -i must be the same as to -d, ",
+	  "however a -i/-d combo with this many files respectively was ",
+	  "found: [",
+	  join(',',(map {scalar(@{$input_files->[$_]}) . '/' .
 			   scalar(@{$drp_files->[$_]})} @$bad_indexes)),
-	  "].  The number of files to -i must be the same as to -d for each ",
-	  "ordered occurrence of -i/-d.");
+	  "].",
+	  (scalar(@{$drp_files->[0]}) == 1 ?
+	   ("  Note that any files on the command line without a flag in ",
+	    "front of it (such as -d) or not inside quotes will be ",
+	    "considered an argument of -i.  The single -d file submitted: ",
+	    "[$drp_files->[0]->[0]].") : ''));
     quit(7);
   }
 
@@ -1614,15 +1618,16 @@ sub getCommand
   }
 
 ##
-## This subroutine checks for files with spaces in the name before doing a glob
-## (which breaks up the single file name improperly even if the spaces are
-## escaped).  The purpose is to allow the user to enter input files using
-## double quotes and un-escaped spaces as is expected to work with many
-## programs which accept individual files as opposed to sets of files.  If the
-## user wants to enter multiple files, it is assumed that space delimiting will
-## prompt the user to realize they need to escape the spaces in the file names.
-## This version works with a mix of unescaped and escaped spaces, as well as
-## glob characters.  It will also split non-files on unescaped spaces as well.
+## This subroutine performs a more reliable glob than perl's built-in, which
+## fails for files with spaces in the name, even if they are escaped.  The
+## purpose is to allow the user to enter input files using double quotes and
+## un-escaped spaces as is expected to work with many programs which accept
+## individual files as opposed to sets of files.  If the user wants to enter
+## multiple files, it is assumed that space delimiting will prompt the user to
+## realize they need to escape the spaces in the file names.  This version
+## works with a mix of unescaped and escaped spaces, as well as glob
+## characters.  It will also split non-files on unescaped spaces and uses a
+## helper sub (globCurlyBraces) to mitigate truncations from long strings.
 ##
 sub sglob
   {
@@ -1633,20 +1638,117 @@ sub sglob
 	return($command_line_string);
       }
 
-    my $home = '';
-    if(exists($ENV{HOME}) && -e $ENV{HOME})
-      {$home = $ENV{HOME}}
+    #Expand the string from the command line based on the '{X,Y,...}'
+    #pattern...  Explanation:
+
+    #Sometimes, the glob string is larger than GLOB_LIMIT (even though
+    #the shell sent in the long string to begin with).  When that
+    #happens, bsd_glob just silently chops off everything except the
+    #directory, so we will split the strings up here in perl (to expand
+    #any '{X,Y,...}' patterns) before passing them to bsd_glob.  This
+    #will hopefully shorten each individual file string for bsd_glob to
+    #be able to handle.  We'll sort them too to be on the safe side
+    my @partials = map {sort {$a cmp $b} globCurlyBraces($_)}
+      split(/(?<!\\)\s+/,$command_line_string);
+
+    my $real_file_found = 0;
 
     #Note, when bsd_glob gets a string with a glob character it can't expand,
     #it drops the string entirely.  Those strings are returned with the glob
-    #characters so the surrounding script can report an error.
-    return(map {my @x = bsd_glob($_);my $v = $_;
-		scalar(@x) &&               #An existing file or ~ expansion
-		  scalar(@x) == scalar(grep {-e $_ ||
-					       ($home &&
-						$v =~ /~/ &&
-						m%$home%)} @x) ? @x : $_}
-	   split(/(?<!\\)\s+/,$command_line_string));
+    #characters so the surrounding script can report an error.  The GLOB_ERR
+    #posix flag is not used because of the way the patterns are manipulated
+    #before getting to bsd_glob - which could cause a valid expansion to
+    #nothing that bsd_glob would complain about.
+    my @arguments =
+      map
+	{
+	  #Expand the string from the command line using a glob
+	  my $v = $_;
+	  my @x = bsd_glob($v,GLOB_CSH);
+	  #If the expansion returned more than 1 thing OR
+	  if(scalar(@x) > 1 ||
+
+	     (#There's only 1 expanded and existing result AND
+	      scalar(@x) == 1 && -e $x[0] &&
+
+	      #If the glob string was too long, everything after the last
+	      #directory can be truncated, so we want to avoid returning
+	      #that truncated value, thus...
+
+	      (#The expanded value is not a directory OR
+	       !-d $x[0] ||
+
+	       #Assumed: it is a directory and...
+
+	       (#The pre-expanded value was a valid directory string already
+		#or ended with a slash (implying the dir had glob characters
+		#in its name/path) or the last expanded string's character
+		#is not a slash (implying the end of a pattern wasn't
+		#chopped off by bsd_glob, which would leave a slash).
+		-d $v || $v =~ m%/$% || $x[0] !~ m%/$%))))
+	    {
+	      $real_file_found = 1;
+	      @x;
+	    }
+	  else
+	    {$v}
+	} @partials;
+
+    return($real_file_found ? @arguments : $command_line_string);
+  }
+
+sub globCurlyBraces
+  {
+    my $nospace_string = $_[0];
+
+    if($nospace_string =~ /(?<!\\)\s+/)
+      {
+	error("Unescaped spaces found in input string: [$nospace_string].");
+	return($nospace_string);
+      }
+    elsif(scalar(@_) > 1)
+      {
+	error("Too many [",scalar(@_),"] parameters sent in.  Expected 1.");
+	return(@_);
+      }
+
+    #Keep updating an array to be the expansion of a file pattern to
+    #separate files
+    my @expanded = ($nospace_string);
+
+    #If there exists a '{X,Y,...}' pattern in the string
+    if($nospace_string =~ /\{[^\{\}]+\}/)
+      {
+	#While the first element still has a '{X,Y,...}' pattern
+	#(assuming everything else has the same pattern structure)
+	while($expanded[0] =~ /\{[^\{\}]+\}/)
+	  {
+	    #Accumulate replaced file patterns in @g
+	    my @buffer = ();
+	    foreach my $str (@expanded)
+	      {
+		#If there's a '{X,Y,...}' pattern, split on ','
+		if($str =~ /\{([^\{\}]+)\}/)
+		  {
+		    my $substr     = $1;
+		    my $before     = $`;
+		    my $after      = $';
+		    my @expansions = split(/,/,$substr);
+		    push(@buffer,map {$before . $_ . $after} @expansions);
+		  }
+		#Otherwise, push on the whole string
+		else
+		  {push(@buffer,$str)}
+	      }
+
+	    #Reset @f with the newly expanded file strings so that we
+	    #can handle additional '{X,Y,...}' patterns
+	    @expanded = @buffer;
+	  }
+      }
+
+    #Pass the newly expanded file strings through
+    return(wantarray ? @expanded : [@expanded]);
   }
 
 sub getVersion
