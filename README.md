@@ -37,6 +37,8 @@ Briefly, sequences in samples are renamed so that each sequence is assigned the 
 
 The pipeline is designed to filter for errors that are the result of sequencing or PCR substitutions.  However, an additional pre-/post-filtering step has been provided to identify possible indels. This is an optional post-filtering step when applied to Illumina data, but is suggested as a pre-filtering step when applied to 454 data, where indel errors are commonly generated during sequencing.
 
+When running run_CFF_on_FastQ, be sure to select the correct fastq_ascii offset (either 33 or 64).  This is a parameter to usearch.  A detailed explanation of this parameter can be found on the usearch website at http://drive5.com/usearch/manual/fastq_params.html.
+
 Helpful definitions:
 
     Candidate:         A sequence that is suspected to not be the result of a PCR
@@ -149,6 +151,12 @@ To run getReals.pl with the -f option (implying candidates should be filtered fo
 
 To run interestingPairs.pl without error, usearch is required.  If it's not in your path, you can supply the usearch executable with full path to the -y option.  You can install CFF without installing usearch.  If you want to run interestingPairs.pl, you can install usearch at a later time.
 
+## UPDATE
+
+To update your copy of this package, simply download the latest version (see DOWNLOAD above) and follow the installation procedure.  You can skip installing the dependencies such as usearch, muscle, and the required perl modules, however note any discrepancies when you run `perl Makefile.PL` and install anything that is missing or below the required version number.
+
+Note that each perl script in the package has its own version number.  If you include --header as an option when running commands, output files will have a header with run information, including the version of the script that was used to generate the output.  Rest assured that all the elements of the pipeline will skip the headers when processing the files.
+
 ## EXAMPLE
 
 In [1], we discuss the application of CFF to analyze a time series of 16S samples from a longitudinal study performed by Caporaso et al. [2]. As test data, we provide a subset of samples from that study. The same 10 samples are provided in FastA and FastQ format to illustrate the two uses of the CFF pipeline (using raw FastQ and already quality-filtered FastA data). For a detailed description of the test data, see samples/testDataDescription.txt.
@@ -195,34 +203,33 @@ Example 3 runs CFF on the gut samples test data. It runs the same analysis as ex
 
 ## REFERENCES
 
-1. Tikhonov M, Leach RW, Wingreen NS. (2014) Interpreting 16S data without clustering to achieve sub-OTU resolution.  
- *A pre-print of this article, currently under review, is available upon request.*
+1. [Tikhonov M, Leach RW, Wingreen NS. (2014) Interpreting 16S data without clustering to achieve sub-OTU resolution. ISME J. 117.] (http://dx.doi.org/10.1038/ismej.2014.117 "Tikhonov et al., 2014")
 
 2. [Caporaso JG, Lauber CL, Costello EK, et al. (2011) Moving pictures of the human microbiome. Genome Biol. 12(5):R50.] (http://dx.doi.org/10.1186/gb-2011-12-5-r50 "Caporaso et al., 2011")
 
 
 ## CONTACT
 
-For technical support (bugs, feature requests, error messages, script functionality, portability...):  
+For technical support (bugs, feature requests, error messages, script functionality, portability...):
 
 https://github.com/hepcat72/CFF/issues
 
-For science-related questions (usefulness of CFF for your application, limitations of error model, other sequencing platforms...):  
+For science-related questions (usefulness of CFF for your application, limitations of error model, other sequencing platforms...):
 
-tikhonov@princeton.edu
+tikhonov@fas.harvard.edu
 
 ## AUTHORS
 
-Robert W. Leach  
-Bioinformatics Group  
-Lewis-Sigler Institute for Integrative Genomics  
-Princeton University  
-Princeton, NJ  
+Robert W. Leach
+Bioinformatics Group
+Lewis-Sigler Institute for Integrative Genomics
+Princeton University
+Princeton, NJ
 
-Mikhail Tikhonov  
-Lewis-Sigler Institute for Integrative Genomics  
-Princeton University  
-Princeton, NJ  
+Mikhail Tikhonov
+School of Engineering and Applied Sciences
+Harvard University
+Boston, MA
 
 ## TROUBLESHOOTING
 
