@@ -1,17 +1,19 @@
 #!/bin/tcsh
 
-#USAGE: tcsh run_CFF_on_FastQ.tcsh trimlen outdir "fastq-files"
-# E.G.: tcsh run_CFF_on_FastQ.tcsh 130 myanalysis "some-dir/*.fa"
+#USAGE: tcsh run_CFF_on_FastQ.tcsh trimlen ascii_offset outdir "fastq-files"
+# E.G.: tcsh run_CFF_on_FastQ.tcsh 130 64 myanalysis "some-dir/*.fa"
 
 setenv STARTTIME `perl -e 'print(scalar(time()))'`
 setenv TRIMLEN   `echo "$argv" | cut -f 1 -d " "`
-setenv ANALDIR   `echo "$argv" | cut -f 2 -d " "`
-setenv FASTQS    `echo "$argv" | cut -f 3-999 -d " "`
+setenv ASCII     `echo "$argv" | cut -f 2 -d " "`      #Either 33 or 64*
+setenv ANALDIR   `echo "$argv" | cut -f 3 -d " "`
+setenv FASTQS    `echo "$argv" | cut -f 4-999 -d " "`
+
+# * - Usually 64, details: http://drive5.com/usearch/manual/fastq_params.html
 
 setenv Z         2
 setenv K         2
 setenv MAG       10
-setenv ASCII     64
 setenv LIB       global_library.fna
 setenv QUAL      2
 setenv STUBS     `perl -e 'print(join(",",map {s%.*/%%;$_} @ARGV))' $FASTQS`
