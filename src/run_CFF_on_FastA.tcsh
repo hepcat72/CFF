@@ -38,8 +38,8 @@ mkdir $ANALDIR
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "mergeSeqs.pl        $FASTAS -f $LIB --outdir $ANALDIR/2_lib -o .lib -p ''"
-mergeSeqs.pl $FASTAS -f $LIB --outdir $ANALDIR/1_lib -o .lib -p '' --overwrite
+echo -n "mergeSeqs.pl        $FASTAS -f $LIB --outdir $ANALDIR/2_lib -o .lib -b $TRIMLEN -p ''"
+mergeSeqs.pl $FASTAS -f $LIB --outdir $ANALDIR/1_lib -o .lib -p '' -b $TRIMLEN --overwrite
 if ( $status ) then
   echo
   echo
