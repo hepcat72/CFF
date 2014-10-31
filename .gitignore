@@ -9,3 +9,4 @@ Makefile.old
 blib
 pm_to_blib
 samples/Caporaso_FASTQ_out
+samples/Caporaso_FASTA_out
