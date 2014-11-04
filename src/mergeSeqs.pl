@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.9';
+my $software_version_number = '2.10';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -63,7 +63,7 @@ my $preserve_args     = [@ARGV];  #Preserve the agruments for getCommand
 my $num_explicit_args = scalar(@ARGV);
 my $verbose           = 0;
 my $quiet             = 0;
-my $DEBUG             = 0;
+my($DEBUG);
 my $force             = 0;
 my @user_defaults     = getUserDefaults(1);
 
@@ -176,6 +176,8 @@ if($use_as_default)
   }
 
 print STDERR ("Starting dry run.\n") if($dry_run);
+
+$DEBUG = 0 if(!defined($DEBUG));
 
 #Print the debug mode (it checks the value of the DEBUG global variable)
 debug('Debug mode on.') if($DEBUG > 1);
@@ -373,18 +375,17 @@ if($id_delim !~ /./)
 	   "output deflines might be difficult to distinguish from the rest ",
 	   "of the line.")}
 
+#Determine whether we are merging files by checking if the number of map files
+#or outfiles corresponds to the number of input file groups (or is 1)
 my $isglobal = (#There are the same number of map files as input file groups
 		(scalar(@$mapfiles) == scalar(@$input_files)) ||
-		#There is 1 map file and all input file groups are size 1
+		#There is 1 map file
 		scalar(@$mapfiles) == 1 ||
 
 		#There are the same number of out files as input file groups
 	        ($num_outfiles == scalar(@$input_files)) ||
 		#There is 1 out file
-		$num_outfiles == 1# ||
-#	        ($num_outfiles == 0 &&
-#		 scalar(@$mapfiles) != scalar(@$input_files)));
-	       );
+		$num_outfiles == 1);
 
 if(!$isglobal && (defined($outfile_suffix) || defined($tab_suffix)))
   {
@@ -1511,7 +1512,7 @@ sub getLine
 ##
 sub debug
   {
-    return(0) unless($DEBUG);
+    return(0) if(defined($DEBUG) && !$DEBUG);
 
     $main::debug_number++;
 
@@ -1552,25 +1553,56 @@ sub debug
 			       $leader_string : '') .
 			      $debug_message[0]);
 
-    #Put location information at the beginning of each line of the message
-    print STDERR ($leader_string,
-		  shift(@debug_message),
-		  ($verbose &&
-		   defined($main::last_verbose_state) &&
-		   $main::last_verbose_state ?
-		   ' ' x ($main::last_verbose_size - $debug_length) : ''),
-		  "\n");
     my $leader_length = length($leader_string);
-    foreach my $line (@debug_message)
-      {print STDERR (' ' x $leader_length,
-		     $line,
-		     "\n")}
 
-    #Reset the verbose states if verbose is true
-    if($verbose)
+    if(defined($DEBUG))
       {
-	$main::last_verbose_size = 0;
-	$main::last_verbose_state = 0;
+	#If there were debug messages before $DEBUG got defined on the command
+	#line, print out the debug buffer
+	if(defined($main::debug_buffer))
+	  {
+	    print STDERR ($main::debug_buffer);
+	    undef($main::debug_buffer);
+	  }
+
+	#Put location information at the beginning of each line of the message
+	print STDERR ($leader_string,
+		      shift(@debug_message),
+		      ($verbose &&
+		       defined($main::last_verbose_state) &&
+		       $main::last_verbose_state ?
+		       ' ' x ($main::last_verbose_size - $debug_length) : ''),
+		      "\n");
+	foreach my $line (@debug_message)
+	  {print STDERR (' ' x $leader_length,
+			 $line,
+			 "\n")}
+
+	#Reset the verbose states if verbose is true
+	if($verbose)
+	  {
+	    $main::last_verbose_size = 0;
+	    $main::last_verbose_state = 0;
+	  }
+      }
+    #We get here before $DEBUG is defined by the command line, so let's buffer
+    #the output until we know whether we're going to be in debug mode or not
+    else
+      {
+	if(!defined($main::debug_buffer))
+	  {$main::debug_buffer = ''}
+	$main::debug_buffer .=
+	  join('',($leader_string,
+		   shift(@debug_message),
+		   ($verbose &&
+		    defined($main::last_verbose_state) &&
+		    $main::last_verbose_state ?
+		    ' ' x ($main::last_verbose_size - $debug_length) : ''),
+		   "\n"));
+	foreach my $line (@debug_message)
+	  {$main::debug_buffer .= join('',(' ' x $leader_length,
+					   $line,
+					   "\n"))}
       }
 
     #Return success
@@ -1693,10 +1725,16 @@ sub getCommand
 ##
 sub sglob
   {
-    my $command_line_string = $_[0];
-    unless(defined($command_line_string))
+    #Convert possible 'Getopt::Long::CallBack' to SCALAR by wrapping in quotes:
+    my $command_line_string = "$_[0]";
+    if(!defined($command_line_string))
       {
 	warning("Undefined command line string encountered.");
+	return($command_line_string);
+      }
+    elsif(-e $command_line_string)
+      {
+	debug("Returning command line args: [($command_line_string)].");
 	return($command_line_string);
       }
 
@@ -1749,12 +1787,17 @@ sub sglob
 		#chopped off by bsd_glob, which would leave a slash).
 		-d $v || $v =~ m%/$% || $x[0] !~ m%/$%))))
 	    {
-	      $real_file_found = 1;
+	      $real_file_found = scalar(grep {-e $_} @x);
 	      @x;
 	    }
 	  else
 	    {$v}
 	} @partials;
+
+    print STDERR "";
+
+    debug("Returning command line args: [(",join('),(',@arguments),
+	  ")].  Number of real files found: [$real_file_found].");
 
     return($real_file_found ? @arguments : $command_line_string);
   }
@@ -3047,7 +3090,9 @@ sub copyArray
   {
     if(scalar(grep {ref(\$_) ne 'SCALAR' && ref($_) ne 'ARRAY'} @_))
       {
-	error("Invalid argument - not an array of scalars.");
+	my @errs = map {ref($_)}
+	  grep {ref(\$_) ne 'SCALAR' && ref($_) ne 'ARRAY'} @_;
+	error("Invalid argument: [@errs] - not an array of scalars.");
 	quit(-19);
       }
     my(@copy);
@@ -3670,21 +3715,20 @@ sub getNextSeqRec
 	    quit(2);
 	  }
 
-	if(!-e $input_file || $input_file =~ / /)
+	if(!-e $input_file)
 	  {
-	    error("`-t auto` cannot be used when the input file ",
-		  "[$input_file] does not exist or has a space in its name.  ",
-		  "Please supply the exact file type.");
-	    quit(3);
+	    error("`-t auto` cannot be used when the input file does not ",
+		  "exist.  Please supply the exact file type.");
+	    quit(8);
 	  }
 
 	my($num_fastq_defs);
 	if(-e $input_file)
 	  {
 	    $num_fastq_defs =
-	      `head -n 50 $input_file | grep -c -E '^[\@\+]'`;
+	      `head -n 50 "$input_file" | grep -c -E '^[\@\+]'`;
 	    debug("System output from: [",
-		  qq(head -n 50 $input_file | grep -c -E '^[\@\+]'),
+		  qq(head -n 50 "$input_file" | grep -c -E '^[\@\+]'),
 		  "]:\n$num_fastq_defs");
 	    $num_fastq_defs =~ s/^\D+//;
 	    $num_fastq_defs =~ s/\D.*//;
@@ -3702,10 +3746,10 @@ sub getNextSeqRec
 	    my($num_fasta_defs);
 	    if(-e $input_file)
 	      {
-		$num_fasta_defs = `head -n 50 $input_file | grep -c -E '^>'`;
+		$num_fasta_defs = `head -n 50 "$input_file" | grep -c -E '^>'`;
 
 		debug("System output from: [",
-		      qq(head -n 50 $input_file | grep -c -E '^>'),
+		      qq(head -n 50 "$input_file" | grep -c -E '^>'),
 		      "]:\n$num_fasta_defs");
 
 		$num_fasta_defs =~ s/^\D+//;
