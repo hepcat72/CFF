@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.7';
+my $software_version_number = '1.8';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -4614,21 +4614,20 @@ sub getNextSeqRec
 	    quit(2);
 	  }
 
-	if(!-e $input_file || $input_file =~ / /)
+	if(!-e $input_file)
 	  {
-	    error("`-t auto` cannot be used when the input file ",
-		  "[$input_file] does not exist or has a space in its name.  ",
-		  "Please supply the exact file type.");
-	    quit(3);
+	    error("`-t auto` cannot be used when the input file does not ",
+		  "exist.  Please supply the exact file type.");
+	    quit(8);
 	  }
 
 	my($num_fastq_defs);
 	if(-e $input_file)
 	  {
 	    $num_fastq_defs =
-	      `head -n 50 $input_file | grep -c -E '^[\@\+]'`;
+	      `head -n 50 "$input_file" | grep -c -E '^[\@\+]'`;
 	    debug("System output from: [",
-		  qq(head -n 50 $input_file | grep -c -E '^[\@\+]'),
+		  qq(head -n 50 "$input_file" | grep -c -E '^[\@\+]'),
 		  "]:\n$num_fastq_defs");
 	    $num_fastq_defs =~ s/^\D+//;
 	    $num_fastq_defs =~ s/\D.*//;
@@ -4646,10 +4645,10 @@ sub getNextSeqRec
 	    my($num_fasta_defs);
 	    if(-e $input_file)
 	      {
-		$num_fasta_defs = `head -n 50 $input_file | grep -c -E '^>'`;
+		$num_fasta_defs = `head -n 50 "$input_file" | grep -c -E '^>'`;
 
 		debug("System output from: [",
-		      qq(head -n 50 $input_file | grep -c -E '^>'),
+		      qq(head -n 50 "$input_file" | grep -c -E '^>'),
 		      "]:\n$num_fasta_defs");
 
 		$num_fasta_defs =~ s/^\D+//;
