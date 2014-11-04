@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.15';
+my $software_version_number = '1.16';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -3231,6 +3231,8 @@ sub getNextFastqRec
 #Uses global variables: lastfiletype, filetype, & $input_file
 sub getNextSeqRec
   {
+    debug("Determining previous type");
+
     if(!defined($main::lastfiletype) || $filetype ne 'auto')
       {
 	if($filetype eq 'fasta')
@@ -3251,6 +3253,8 @@ sub getNextSeqRec
        (!defined($main::lastfiletype) ||
 	!exists($main::lastfiletype->{$input_file})))
       {
+	debug("Determining type");
+
 	if($input_file eq '-')
 	  {
 	    error("`-t auto` cannot be used when the input file is supplied ",
@@ -3258,21 +3262,26 @@ sub getNextSeqRec
 	    quit(2);
 	  }
 
-	if(!-e $input_file || $input_file =~ / /)
+	if(!-e $input_file)
 	  {
 	    error("`-t auto` cannot be used when the input file does not ",
-		  "exist or has a space in its name.  Please supply the ",
-		  "exact file type.");
-	    quit(3);
+		  "exist.  Please supply the exact file type.");
+	    quit(8);
 	  }
 
-	my $num_fastq_defs =
-	  `head -n 50 $input_file | grep -c -E '^[\@\+]'`;
-	debug("System output from: [",
-	      qq(head -n 50 $input_file | grep -c -E '^[\@\+]'),
-	      "]:\n$num_fastq_defs");
-	$num_fastq_defs =~ s/^\D+//;
-	$num_fastq_defs =~ s/\D.*//;
+	my($num_fastq_defs);
+	if(-e $input_file)
+	  {
+	    $num_fastq_defs =
+	      `head -n 50 "$input_file" | grep -c -E '^[\@\+]'`;
+	    debug("System output from: [",
+		  qq(head -n 50 "$input_file" | grep -c -E '^[\@\+]'),
+		  "]:\n$num_fastq_defs");
+	    $num_fastq_defs =~ s/^\D+//;
+	    $num_fastq_defs =~ s/\D.*//;
+	  }
+	else
+	  {$num_fastq_defs = 0}
 
 	if($num_fastq_defs > 0)
 	  {
@@ -3281,10 +3290,20 @@ sub getNextSeqRec
 	  }
 	else
 	  {
-	    my $num_fasta_defs =
-	      `head -n 50 $input_file | grep -c -E '^>'`;
-	    $num_fasta_defs =~ s/^\D+//;
-	    $num_fasta_defs =~ s/\D.*//;
+	    my($num_fasta_defs);
+	    if(-e $input_file)
+	      {
+		$num_fasta_defs = `head -n 50 "$input_file" | grep -c -E '^>'`;
+
+		debug("System output from: [",
+		      qq(head -n 50 "$input_file" | grep -c -E '^>'),
+		      "]:\n$num_fasta_defs");
+
+		$num_fasta_defs =~ s/^\D+//;
+		$num_fasta_defs =~ s/\D.*//;
+	      }
+	    else
+	      {$num_fasta_defs = 0}
 
 	    if($num_fasta_defs > 0)
 	      {
@@ -3296,6 +3315,7 @@ sub getNextSeqRec
 		if(!defined($main::lastfiletype) ||
 		   !exists($main::lastfiletype->{$input_file}))
 		  {
+		    debug("Num fasta deflines: [$num_fasta_defs].");
 		    error("Unable to determine file type.  Skipping file ",
 			  "[$input_file].");
 		    return(undef);
@@ -3309,6 +3329,8 @@ sub getNextSeqRec
 	      }
 	  }
       }
+
+    debug("Returning record");
 
     return($main::getnextsub->(@_));
   }
