@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.2';                   #Global
+my $software_version_number = '1.3';                   #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -51,8 +51,11 @@ my $compound_mode  = 0;
 #Global variables used in main
 my $outfile_suffix    = '_otus.txt';
 my $rep_set_suffix    = '_rep_set.fna';
+my $qiime_scpt_suffix = '_qiime_tax_commands.sh';
+my $runall_scpt       = 'run_all_qiime_tax_commands.sh';
 my($biom_suffix);
 my $input_files       = [];
+my $smry_files        = [];
 my $outdirs           = [];
 my $filetype          = 'auto';
 my $seq_id_pattern    = '^\s*[>\@]\s*([^;]+)';
@@ -66,12 +69,18 @@ my $GetOptHash =
    '<>'                   => sub {checkFileOpt($_[0],1);
 				  push(@$input_files,    #REQUIRED unless -i is
 				       [sglob($_[0])])}, #         supplied
+   's|summary-file=s'	  => sub {push(@$smry_files,     #OPTIONAL [none]
+				       [sglob($_[1])])},
    't|filetype=s'         => \$filetype,                 #OPTIONAL [auto]
 				                         #   (fasta,fastq,auto)
    'o|outfile-suffix|otus-suffix=s'
                           => \$outfile_suffix,           #OPTIONAL [_otus.txt]
    'r|rep-set-suffix=s'   => \$rep_set_suffix,           #OPTIONAL
                                                          #       [_rep_set.fna]
+   'tax-script-suffix=s'  => \$qiime_scpt_suffix,        #OPTIONAL [_qiime_tax_
+                                                         #         commands.sh]
+   'run-all-script=s'     => \$runall_scpt,              #OPTIONAL [run_all_qii
+                                                         #  me_tax_commands.sh]
    'b|biom-suffix=s'      => \$biom_suffix,              #OPTIONAL [.biom]
    'outdir=s'             => sub {push(@$outdirs,        #OPTIONAL [none]
 				       [sglob($_[1])])},
@@ -148,6 +157,21 @@ if(scalar(@$input_files) == 0 && isStandardInputFromTerminal())
     quit(-7);
   }
 
+#Require the same number of filtered(/input/reals) files as summary files (if
+#supplied)
+if(#Summary files were provided
+   (scalar(@$smry_files) > 1 ||
+    (scalar(@$smry_files) == 1 && scalar(@{$smry_files->[0]}))) &&
+   #its array dimensions are not the same as the input_files array
+   (scalar(@$smry_files) != scalar(@$input_files) ||
+    scalar(grep {scalar(@{$input_files->[$_]}) != scalar(@{$smry_files->[$_]})}
+	   (0..$#{$input_files}))))
+  {
+    error("The files supplied to -s must be equal in number to the files ",
+	  "supplied to -i.");
+    quit(3);
+  }
+
 #Require an outfile suffix if an outdir has been supplied
 if(scalar(@$outdirs) && !defined($outfile_suffix))
   {
@@ -169,11 +193,13 @@ if(scalar(@$outdirs) && !defined($outfile_suffix))
 #    $input_file_sets = [[1,a],[2,b],[3,c]];   #Resulting sets
 #
 my($input_file_sets,   #getFileSets(3DinfileArray,2DsuffixArray,2DoutdirArray)
-   $output_file_sets) = getFileSets([$input_files],
+   $output_file_sets) = getFileSets([$input_files,
+				     $smry_files],
 
 				    [[$outfile_suffix,
 				      $rep_set_suffix,
-				      $biom_suffix]],
+				      $biom_suffix,
+				      $qiime_scpt_suffix]],
 
 				    $outdirs);
 
@@ -182,17 +208,25 @@ mkdirs(@$outdirs);
 
 my($input_file);
 
+#If a runall script is being generated
+if(defined($runall_scpt) && $runall_scpt ne '')
+  {openOut(*ALL,$runall_scpt) || quit(5)}
+
 #For each set of corresponding input files
 foreach my $set_num (0..$#$input_file_sets)
   {
-    $input_file = $input_file_sets->[$set_num]->[0];
-    my($output_file,$rep_set_file,$biom_file) =
+    $input_file   = $input_file_sets->[$set_num]->[0];
+    my $smry_file = $input_file_sets->[$set_num]->[1];
+    my($output_file,$rep_set_file,$biom_file,$qiime_scpt) =
       @{$output_file_sets->[$set_num]->[0]};
 
-    openIn (*INPUT, $input_file)     || next;
-    openOut(*OTUS,  $output_file)    || next;
-    openOut(*REPSET,$rep_set_file,0) || next;
-    openOut(*BIOM,  $biom_file,0)    || next;
+    if(defined($smry_file))
+      {openIn(*SMRY,  $smry_file)      || next}
+    openIn(   *INPUT, $input_file)     || next;
+    openOut(  *OTUS,  $output_file)    || next;
+    openOut(  *REPSET,$rep_set_file,0) || next;
+    openOut(  *BIOM,  $biom_file,0)    || next;
+    openOut(  *SCPT,  $qiime_scpt,0)   || next;
 
     next if($dry_run);
 
@@ -200,8 +234,11 @@ foreach my $set_num (0..$#$input_file_sets)
     print BIOM ("# QIIME v1.3.0 OTU table\n#OTU ID\tabundance\n")
       if(defined($biom_file));
 
-    my $cnt = 0;
+    my $cnt          = 0;
     my $verbose_freq = 100;
+    my $filt_hash    = {};
+    my $length       = 0;
+    my $length_errs  = 0;
 
     #For each line in the current input file
     while(my $rec = getNextSeqRec(*INPUT))
@@ -214,12 +251,23 @@ foreach my $set_num (0..$#$input_file_sets)
 	my $abund = getAbund($rec);
 	my $def   = getDef($rec);
 	my $seq   = getSeq($rec);
+	my $len   = getSize($rec);
+	if($length == 0)
+	  {$length = $len}
+	elsif($len && $length != $len)
+	  {
+	    $length = $len if($len < $length);
+	    $length_errs++;
+	  }
 
 	if(!defined($id) || $id !~ /\S/ || !$abund)
 	  {
 	    error("Invalid record.  Skipping.");
 	    next;
 	  }
+
+	#Save the filtered/real IDs for generating a sample-level otus file
+	$filt_hash->{$id} = $abund;
 
 	#Create the new defline for the rep_set file.
 	$def =~ s/^[\@>]//;
@@ -230,15 +278,162 @@ foreach my $set_num (0..$#$input_file_sets)
 	chomp($def);
 	chomp($seq);
 
-	print OTUS   ("$id\tlib",("\t1" x $abund),"\n");
+	print OTUS   ($id,("\t1" x $abund),"\n")
+	  if(!defined($smry_file));
 	print REPSET ("$def\n$seq\n");
 	print BIOM   ("$id\t$abund\n") if(defined($biom_file));
       }
 
-    closeOut(*BIOM,$biom_file);
+    if(defined($smry_file))
+      {
+	my @sample_ids   = ();
+	my $may_shift    = 1;
+	my $missing_hash = {};
+	my $col_anoms    = {};
+	my $a_success    = 0;
+	$cnt             = 0;
+
+	while(getLine(*SMRY))
+	  {
+	    $cnt++;
+	    verboseOverMe("[$smry_file] Reading line: [$cnt].")
+	      unless($cnt % $verbose_freq);
+
+	    chomp;
+
+	    if(/^#/ && /\t/)
+	      {
+		if(scalar(@sample_ids))
+		  {warning("Multiple column header lines detected.  Using ",
+			   "most recent.")}
+
+		@sample_ids = split(/ *\t */,$_,-1);
+		$may_shift  = 1;
+	      }
+	    elsif(/\S/)
+	      {
+		s/^ +//;
+		s/ +$//;
+		my @abunds = split(/ *\t */,$_,-1);
+		my $id = shift(@abunds);
+		my @bad_abunds = grep {/\D/} @abunds;
+		#Error-check the abundance values
+		if(scalar(grep {/\D/} @abunds))
+		  {
+		    my @report_sum = (scalar(@bad_abunds) > 10 ?
+				      (@bad_abunds[0..8],'...') : @bad_abunds);
+		    warning("Bad abundance values found in the summary file ",
+			    "[$smry_file]: [",join(',',@report_sum),
+			    "].  Skipping line [$cnt].  Use --force to ",
+			    "include this line.");
+		    next unless($force);
+		  }
+		#Error-check the sequence ID
+		if(!exists($filt_hash->{$id}))
+		  {
+		    $missing_hash->{$id} = 1;
+		    next unless($force);
+		  }
+		#Error-check the number of abundance values
+		if(scalar(@abunds) != scalar(@sample_ids))
+		  {
+		    if(scalar(@sample_ids) == 0)
+		      {
+			@sample_ids = (1..scalar(@abunds));
+			$may_shift = 0;
+		      }
+		    elsif($may_shift &&
+			  (scalar(@sample_ids) - 1) == scalar(@abunds))
+		      {
+			shift(@sample_ids);
+			$may_shift = 0;
+		      }
+		    else
+		      {
+			$col_anoms->{$id} = scalar(@abunds);
+			next unless($force);
+		      }
+		  }
+
+		#Everything checks out, so let's print
+		print($id,(map {my $sid = (scalar(@sample_ids) > $_ ?
+					   $sample_ids[$_] : ($_ + 1));
+				"\t$sid" x $abunds[$_]}
+			   (0..$#abunds)),"\n");
+
+		#Track successes to make error reporting more succinct
+		$a_success++;
+	      }
+	  }
+
+	if($a_success == 0)
+	  {
+	    error("There were problems with your summary file: [$smry_file].",
+		  (scalar(keys(%$missing_hash)) ?
+		   ("  The IDs did not appear to match your sequence file: ",
+		    "[$input_file].") : ''),
+		  (scalar(keys(%$col_anoms)) ?
+		   ("  The number of columns on each line (or the optional ",
+		    "column headers) were inconsistent.") : ''));
+	  }
+	else
+	  {
+	    if(scalar(keys(%$missing_hash)))
+	      {
+		my @report_missing = (scalar(keys(%$missing_hash)) > 10 ?
+				      ((keys(%$missing_hash))[0..8],'...') :
+				      keys(%$missing_hash));
+		warning("These OTU IDs found in the summary file ",
+			"[$smry_file] were missing in the main sequence file ",
+			"and have been skipped: [",join(',',@report_missing),
+			"].  Use --force to include missing IDs.");
+	      }
+	    if(scalar(keys(%$col_anoms)))
+	      {
+		my @report_anoms = (scalar(keys(%$col_anoms)) > 10 ?
+				    ((keys(%$col_anoms))[0..8],'...') :
+				    keys(%$col_anoms));
+		warning("These OTU IDs found in the summary file ",
+			"[$smry_file] didn't have a consistent number of ",
+			"columns with the rest of the file and have been ",
+			"skipped: [",join(',',@report_anoms),
+			"].  Use --force to include these IDs.");
+	      }
+	  }
+
+	closeIn(*SMRY);
+      }
+
+    #Now print a script to generate the biom file using qiime commands
+    if(defined($qiime_scpt))
+      {
+	if($length_errs)
+	  {
+	    $length = 50 unless($length);
+	    error("Length inconsistencies found in sequence file ",
+		  "[$input_file].  Using [$length] for qiime shell script ",
+		  "[$qiime_scpt].");
+	  }
+
+	my $script =
+	  getQiimeScript($output_file,$rep_set_file,$length);
+	print SCPT ($script);
+	print ALL  ("bash $qiime_scpt\n")
+	  if(defined($runall_scpt) && $runall_scpt ne '');
+      }
+
+    closeOut(*BIOM,  $biom_file);
     closeOut(*REPSET,$rep_set_file);
-    closeOut(*OTUS,$output_file);
+    closeOut(*OTUS,  $output_file);
+    closeOut(*SCPT,  $qiime_scpt);
+    chmod(0755,$qiime_scpt) if(defined($qiime_scpt) && $qiime_scpt ne '');
     closeIn(*INPUT);
+  }
+
+if(defined($runall_scpt) && $runall_scpt ne '')
+  {
+    closeOut(*ALL,$runall_scpt);
+    chmod(0755,$runall_scpt);
   }
 
 printRunReport();
@@ -1446,10 +1641,11 @@ sub getFileSets
 	  {$file_types_array = [[$file_types_array]]}
 	else
 	  {
-	    @errors = map {ref($_)} grep {ref($_) ne 'ARRAY'}
+	    @errors = map {ref($_) eq '' ? ref(\$_) : ref($_)}
+	      grep {ref($_) ne 'ARRAY'}
 	      @$file_types_array;
 	    error("Expected an array of arrays for the first argument, but ",
-		  "got an array of [",join(',',@errors),"].");
+		  "found a [",join(',',@errors),"] inside the outer array.");
 	    quit(-10);
 	  }
       }
@@ -3765,37 +3961,31 @@ Room 133A
 Princeton, NJ 08544
 rleach\@genomics.princeton.edu
 
-* WHAT IS THIS: This script will take a file of sequences containing abundance
-                values on the deflines and convert it into files that can be
-                used in the qiime metagenomics pipeline, version 1.3.0 (see
-                qiime.org).  It procudes an OTU file, REP SET file, and
-                optional BIOM file.  These files are intended to be used in
-                qiime in the following manner:
-
-                assign_taxonomy.py -i REP_SET -o taxa
-                align_seqs.py -i REP_SET -o aln
-                filter_alignment.py -i aln/REP_SET_aligned.ext -o filt
-                make_phylogeny.py -i filt/REP_SET_aligned_pfiltered.ext -o phy
-                make_otu_table.py -i OTUS -o biom_file -e aln/*_failures.fna -t taxa/*_tax_assignments.txt
-
-                Alternatively, you could just do these two steps:
-
-                assign_taxonomy.py -i REP_SET -o taxa
-                make_otu_table.py -i OTUS -o biom_file -t taxa/*_tax_assignments.txt
-
-                Or this one step:
-
-                make_otu_table.py -i OTUS -o biom_file
+* WHAT IS THIS: This script takes 2 input files: (-i) a file of sequences
+                containing abundance values on the deflines and the summary
+                file (-s) which is a tab-delimited file that contains a column
+                of abundances for each sample.  The files are converted it into
+                files that can be used in the qiime metagenomics pipeline,
+                version 1.3.0 (see qiime.org) and also a short shell script of
+                qiime commands to generate a phylogeny and a biom file with
+                taxonomic information.  An accompanying wrapper script to run
+                all output scripts with a single command is also generated
+                (--run-all-script).
 
 * INPUT FORMAT: Fasta or fastq files containing abundance values in the
-                deflines.  It is recommended to use this with the .reals output
-                of the getReals.pl script.  By default, after the defline
-                character, the first string on the defline is assumed to be the
-                sequence ID followed by a semicolon.  -q can be used to change
-                the ID pattern match.  The default format for abundance values
-                is "size=#;" where "#" is an integer representing the abundance
-                value.  Other formats are acceptable as long as you can use -p
-                to extract it.  Example default fasta format:
+                deflines.  It is recommended to use this with either the
+                sequence output of the getReals.pl script or the
+                filterIndels.pl script.  The file is used mainly to generate
+                the qiime rep_set file, but is also used to filter the content
+                of the OTUs file and to obtain the sequence length in order to
+                supply it to qiime's align_seqs.py command.  By default, after
+                the defline character, the first string on the defline is
+                assumed to be the sequence ID followed by a semicolon.  -q can
+                be used to change the ID pattern match.  The default format for
+                abundance values is "size=#;" where "#" is an integer
+                representing the abundance value.  Other formats are acceptable
+                as long as you can use -p to extract it.  Example default fasta
+                format:
 
 >6_1_1;ee=0.049;size=2192;N0=0;
 TACGTATGTCACAAGCGTTATCCGGATTTATTGGGCGTAAAGCGCGTCTAGGTGGTTATGTAAGTCTGATGTGAAAATGCAGGGCTCAACTCTGTATTGCGTTGGAAACTGCATGACTAGAGTACTGGAG
@@ -3815,12 +4005,28 @@ TACGTAGGTCCCGAGCGTTGTCCGGATTTATTGGGCGTAAAGCGAGCGCAGGCGGTTAGATAAGTCTGAAGTTAAAGGCT
                      pick_otus.py in qiime, can be used as input for qiime's
                      make_otu_table.py script with the -i option.  It is a tab-
                      delimited file containing the sequence ID as the first
-                     column (interpretted by qiime as the otu ID), a string
-                     'lib' representing the global library the OTUs came from
-                     as the second column, and a series of columns with 1s
-                     (dummy IDs whose number infers the abundance value).
-                     Qiime's make_otu_table.py script will simply count the 1s
-                     to get the abundance.
+                     column (interpretted by qiime as the OTU ID) and a series
+                     of columns with either repeating sample IDs indicating
+                     per-sample abundance (if a summary file is provided) or a
+                     series of 1s (placeholders simply to convey global
+                     abundance across all samples).  The number of occurrences
+                     of each sample-ID/"1" implies the abundance of the
+                     sequence in that sample.  Qiime's make_otu_table.py script
+                     will simply count the occurrences to get the abundance.
+
+                     Example with a summary file (-s):
+
+lib_1   sample1 sample1 sample1 sample2 sample2 sample3...
+lib_2   sample2 sample2 sample4 sample4 sample5 sample6...
+lib_2   sample6 sample6 sample6 sample6 sample6 sample9...
+...
+
+                     Example without a summary file:
+
+lib_1   1       1       1       1       1       1...
+lib_2   1       1       1       1       1       1...
+lib_3   1       1       1       1       1       1...
+...
 
 * REP SET OUTPUT FORMAT: This is a fasta format file similar to the input file
                          except the sequence ID is forced to be at the
@@ -3832,16 +4038,56 @@ TACGTAGGTCCCGAGCGTTGTCCGGATTTATTGGGCGTAAAGCGAGCGCAGGCGGTTAGATAAGTCTGAAGTTAAAGGCT
                          qiime's align_seqs.py and assign_taxonomy.py scripts
                          with the -i option.
 
+>lib_3 size=23629;
+TACGTATGTCACAAGCGTTATCCGGATTTATTGGGCGTAAAGCGCGTCTAGGTGGTTATGTAAGTCTGATGTGAAAATGCAGGGCTCAACTCTGTATTGCGTTGGAAACTGCATGACTAGAGTACTGGAG
+>lib_5 size=8934;
+TACGTAGGTCCCGAGCGTTGTCCGGATTTATTGGGCGTAAAGCGAGCGCAGGCGGTTAGATAAGTCTGAAGTTAAAGGCTGTGGCTTAACCATAGTACGCTTTGGAAACTGTTTAACTTGAGTGCAAGAG
+>lib_6 size=5991;
+TACGTAGGTGGCAAGCGTTGTCCGGAATTATTGGGCGTAAAGCGCGCGCAGGCGGATCAGTCAGTCTGTCTTAAAAGTTCGGGGCTTAACCCCGTGATGGGATGGAAACTGCTGATCTAGAGTATCGGAG
+>lib_7 size=4621;
+TACGTAGGTGGCAAGCGTTGTCCGGAATTATTGGGCGTAAAGCGCGCGCAGGCGGATCAGTTAGTCTGTCTTAAAAGTTCGGGGCTTAACCCCGTGATGGGATGGAAACTGCTGATCTAGAGTATCGGAG
+>lib_8 size=3460;
+TACGGAAGGTCCAGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCGGATTGTTAAGTCAGCGGTTAAAGGGTGTGGCTCAACCATACATTGCCGTTGAAACTGGCGATCTTGAGTGCAGACA
+
 * BIOM OUTPUT FORMAT: The biom file is the same as is produced by
-                      make_otu_table.py in qiime when only the *_otus.txt file
-                      is supplied).  No taxonomy information is included.  It
-                      contains a commented header and tab-delimited data with 2
-                      columns: sequence ID (interpretted by qiime as an OTU ID)
-                      and abundance.  This output option is provided but not
-                      turned on by default since taxonomic information is not
-                      included.  It is recommended that you use qiime with the
-                      REP SET file and OTU file to produce your own BIOM file
-                      with the extra information.
+                      make_otu_table.py in qiime except there is no taxonomy
+                      information.  It contains a commented header and tab-
+                      delimited data with 2 columns: sequence ID (interpretted
+                      by qiime as an OTU ID) and abundance.  This output option
+                      is provided but not turned on by default since taxonomic
+                      information is not included.  It is recommended that you
+                      use the qiime shell script which is output (see QIIME
+                      SHELL SCRIPT), containing qiime commands, to produce your
+                      own BIOM file with the extra information.
+
+* QIIME SHELL SCRIPT: Each output shell script (which you may edit to fine-tune
+                    the parameters) basically contains these qiime commands:
+
+                    assign_taxonomy.py -i REP_SET -o taxa
+                    align_seqs.py -i REP_SET -o aln
+                    filter_alignment.py -i aln/REP_SET_aligned.ext -o filt
+                    make_phylogeny.py -i filt/REP_SET_aligned_pfiltered.ext -o phy
+                    make_otu_table.py -i OTUS -o biom_file -e aln/*_failures.fna -t taxa/*_tax_assignments.txt
+
+                    Alternatively, you could just do these two steps:
+
+                    assign_taxonomy.py -i REP_SET -o taxa
+                    make_otu_table.py -i OTUS -o biom_file -t taxa/*_tax_assignments.txt
+
+                    Or this one step:
+
+                    make_otu_table.py -i OTUS -o biom_file
+
+                    A shell script is output for each input sequence(/summary)
+                    file (pair).  Also a single --run-all-script is generated
+                    in order to run all output scripts with a single command.
+                    This script will be generated by default as
+                    "run_all_qiime_tax_commands.sh".  The file name you supply
+                    to --run-all-script will be the command to execute the
+                    qiime scripts.  It must be run in the directory you ran
+                    cff2qiime.pl in.  You can run it, for example, like this:
+
+                    bash run_all_qiime_tax_commands.sh
 
 end_print
 
@@ -3970,10 +4216,15 @@ sub usage
 	  {
 	    print << 'end_print';
      -i                   REQUIRED Input sequence file(s).
+     -s                   OPTIONAL [none] Input summary file (see getReals.pl).
      -o                   OPTIONAL [_otus.txt] Outfile extension for otu file.
      -r                   OPTIONAL [_rep_set.fna] Outfile extension for
                                    representative sequences file.
      -b                   OPTIONAL [no output] Outfile extension for biom file.
+     --run-all-script     OPTIONAL [run_all_qiime_tax_commands.sh] Output shell
+                                   qiime script to generate phylogeny and biom
+                                   file with taxonomic information (saved in
+                                   current directory).
      --outdir             OPTIONAL [none] Output directory.  Requires -o.
      --verbose            OPTIONAL Verbose mode.
      --quiet              OPTIONAL Quiet mode.
@@ -3989,19 +4240,51 @@ end_print
 	else #Advanced options/extended usage output
 	  {
 	    print << 'end_print';
-     -i,--input-file,     REQUIRED Input file(s).  Space separated, globs OK
-     --stdin-stub,--stub*          (e.g. -i "*.text [A-Z].{?,??}.txt").  When
-                                   standard input detected, -o has been
-                                   supplied, and -i is given only 1 argument,
-                                   it will be used as a file name stub for
-                                   combining with -o to create the outfile
-                                   name.  See --extended --help for file format
-                                   and advanced usage examples.
-                                   *No flag required.
+     -i,--input-file,     REQUIRED Input sequence file(s) (recommended: as
+     --stdin-stub,--stub*          output by either filterIndels.pl or
+                                   getReals.pl).  Used to generate qiime
+                                   rep_set file and to filter the qiime otus
+                                   file, and to determine sequence length for
+                                   running qiime's align_seqs.py (see
+                                   --tax-script-suffix).  Space separated,
+                                   globs OK (e.g. -i
+                                   "*.text [A-Z].{?,??}.txt").  When standard
+                                   input detected, -o has been supplied, and -i
+                                   is given only 1 argument, it will be used as
+                                   a file name stub for combining with -o to
+                                   create the outfile name.  See --extended
+                                   --help for file format and advanced usage
+                                   examples.  *No flag required.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file (-i)
                                    type.  Using this instead of auto will make
                                    file reading faster.  "auto" cannot be used
                                    when redirecting a file in.
+     -s|--summary-file    OPTIONAL [none] Input tab-delimited summary file as
+                                   output by getReals.pl (-s).  This file is
+                                   used to add sample-level columns to the
+                                   output otus file (see -o).  Without this
+                                   file, there will be only global abundance
+                                   information in the resulting otus file.
+     --tax-script-suffix  OPTIONAL [_qiime_tax_commands.sh] Each input
+                                   (/summary) file (pair) generates a shell
+                                   script containing qiime commands to generate
+                                   a phylogeny and biom file with taxonomic
+                                   information.  An accomanying master script
+                                   is also output (see --run-all-script).  You
+                                   must have qiime installed in order for this
+                                   generated script to run.  See --help for
+                                   more information.
+     --run-all-script     OPTIONAL [run_all_qiime_tax_commands.sh] Supply the
+                                   path/name of the master qiime-command shell
+                                   script with this option.  This output shell
+                                   script can be used to run all the
+                                   --tax-script-suffix generated shell scripts,
+                                   so that running multiple files in batch can
+                                   be made easier.  You must have qiime
+                                   installed in order for this generated script
+                                   to run.  Note that this script will be saved
+                                   in the current directory, not any supplied
+                                   --outdir.  See --help for more information.
      -o,--outfile-suffix, OPTIONAL [_otus.txt] Outfile extension appended to
      --otus-suffix                 -i to create the otus file (as is produced
                                    by pick_otus.py in qiime).  Output can be
@@ -4842,3 +5125,88 @@ sub getDef
 
 sub getSeq
   {return($_[0]->[1])}
+
+sub getSize
+  {
+    my $rec  = $_[0];
+    my $size = '';
+
+    if(scalar(@$rec) >= 3 && defined($rec->[2]) &&
+       ref($rec->[2]) eq 'HASH' && exists($rec->[2]->{SIZE}))
+      {$size = $rec->[2]->{SIZE}}
+    else
+      {
+	$size = length($rec->[1]);
+	$rec->[2]->{SIZE} = $size;
+      }
+
+    return($size);
+  }
+
+sub getQiimeScript
+  {
+    my $output_file  = $_[0];
+    my $rep_set_file = $_[1];
+    my $length       = $_[2];
+    my $biom_file    = "$output_file.with_taxa.biom";
+
+    if(!defined($biom_file) || $biom_file eq '')
+      {$biom_file = $rep_set_file}
+
+    my $scpt_str = <<"end_var";
+#!/bin/bash
+
+#USAGE: Run this script from the directory in which the cff2qiime.pl script was run
+
+if [ ! -a $rep_set_file ]; then
+    if [ "\$PWD" != "$ENV{PWD}" ]; then
+        echo "ERROR: You must run this script from [$ENV{PWD}] (the directory in which cff2qiime.pl was run) or edit this script to correct the locations of the files."
+        exit 1;
+    fi
+fi
+
+#File locations/names (Edit here [and delete the if..fi code above] if running from a different location)
+REPSFL=$rep_set_file
+OTUSFL=$output_file
+TAXDIR=$rep_set_file.taxa-dir
+ALNDIR=$rep_set_file.aligned-dir
+FLTDIR=$rep_set_file.filtered-dir
+TREEFL=$rep_set_file.tre
+BIOMFL=$biom_file
+LENGTH=$length
+
+echo "Starting \$REPSFL, \$OTUSFL, \$BIOMFL"
+
+mkdir "\$TAXDIR"
+mkdir "\$ALNDIR"
+mkdir "\$FLTDIR"
+
+echo "Assigning taxonomy..."
+assign_taxonomy.py -i "\$REPSFL" -o "\$TAXDIR"
+
+echo "Aligning..."
+align_seqs.py -i "\$REPSFL" -o "\$ALNDIR" -e "\$LENGTH"
+
+echo "Filtering..."
+filter_alignment.py -i "\$ALNDIR"/*_aligned* -o "\$FLTDIR"
+
+echo "Making phylogeny..."
+make_phylogeny.py -i "\$FLTDIR"/*_aligned_pfiltered* -o "\$TREEFL"
+
+echo "Making biom file..."
+make_otu_table.py -i "\$OTUSFL" -o "\$BIOMFL" -e "\$ALNDIR"/*_failures.fasta -t "\$TAXDIR"/*_tax_assignments.txt
+
+echo
+echo "Output files:"
+echo "============="
+echo "\$TAXDIR/*"
+echo "\$ALNDIR/*"
+echo "\$FLTDIR/*"
+echo "\$TREEFL"
+echo "\$BIOMFL"
+echo
+echo DONE
+end_var
+
+    return($scpt_str);
+  }
