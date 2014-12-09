@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.3';                   #Global
+my $software_version_number = '1.4';                   #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -53,7 +53,6 @@ my $outfile_suffix    = '_otus.txt';
 my $rep_set_suffix    = '_rep_set.fna';
 my $qiime_scpt_suffix = '_qiime_tax_commands.sh';
 my $runall_scpt       = 'run_all_qiime_tax_commands.sh';
-my($biom_suffix);
 my $input_files       = [];
 my $smry_files        = [];
 my $outdirs           = [];
@@ -81,7 +80,6 @@ my $GetOptHash =
                                                          #         commands.sh]
    'run-all-script=s'     => \$runall_scpt,              #OPTIONAL [run_all_qii
                                                          #  me_tax_commands.sh]
-   'b|biom-suffix=s'      => \$biom_suffix,              #OPTIONAL [.biom]
    'outdir=s'             => sub {push(@$outdirs,        #OPTIONAL [none]
 				       [sglob($_[1])])},
    'q|seq-id-pattern=s'   => \$seq_id_pattern,           #OPTIONAL
@@ -198,7 +196,6 @@ my($input_file_sets,   #getFileSets(3DinfileArray,2DsuffixArray,2DoutdirArray)
 
 				    [[$outfile_suffix,
 				      $rep_set_suffix,
-				      $biom_suffix,
 				      $qiime_scpt_suffix]],
 
 				    $outdirs);
@@ -217,7 +214,7 @@ foreach my $set_num (0..$#$input_file_sets)
   {
     $input_file   = $input_file_sets->[$set_num]->[0];
     my $smry_file = $input_file_sets->[$set_num]->[1];
-    my($output_file,$rep_set_file,$biom_file,$qiime_scpt) =
+    my($output_file,$rep_set_file,$qiime_scpt) =
       @{$output_file_sets->[$set_num]->[0]};
 
     if(defined($smry_file))
@@ -225,14 +222,9 @@ foreach my $set_num (0..$#$input_file_sets)
     openIn(   *INPUT, $input_file)     || next;
     openOut(  *OTUS,  $output_file)    || next;
     openOut(  *REPSET,$rep_set_file,0) || next;
-    openOut(  *BIOM,  $biom_file,0)    || next;
     openOut(  *SCPT,  $qiime_scpt,0)   || next;
 
     next if($dry_run);
-
-    #Print header for BIOM file
-    print BIOM ("# QIIME v1.3.0 OTU table\n#OTU ID\tabundance\n")
-      if(defined($biom_file));
 
     my $cnt          = 0;
     my $verbose_freq = 100;
@@ -281,7 +273,6 @@ foreach my $set_num (0..$#$input_file_sets)
 	print OTUS   ($id,("\t1" x $abund),"\n")
 	  if(!defined($smry_file));
 	print REPSET ("$def\n$seq\n");
-	print BIOM   ("$id\t$abund\n") if(defined($biom_file));
       }
 
     if(defined($smry_file))
@@ -422,7 +413,6 @@ foreach my $set_num (0..$#$input_file_sets)
 	  if(defined($runall_scpt) && $runall_scpt ne '');
       }
 
-    closeOut(*BIOM,  $biom_file);
     closeOut(*REPSET,$rep_set_file);
     closeOut(*OTUS,  $output_file);
     closeOut(*SCPT,  $qiime_scpt);
@@ -4049,45 +4039,36 @@ TACGTAGGTGGCAAGCGTTGTCCGGAATTATTGGGCGTAAAGCGCGCGCAGGCGGATCAGTTAGTCTGTCTTAAAAGTTC
 >lib_8 size=3460;
 TACGGAAGGTCCAGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCGGATTGTTAAGTCAGCGGTTAAAGGGTGTGGCTCAACCATACATTGCCGTTGAAACTGGCGATCTTGAGTGCAGACA
 
-* BIOM OUTPUT FORMAT: The biom file is the same as is produced by
-                      make_otu_table.py in qiime except there is no taxonomy
-                      information.  It contains a commented header and tab-
-                      delimited data with 2 columns: sequence ID (interpretted
-                      by qiime as an OTU ID) and abundance.  This output option
-                      is provided but not turned on by default since taxonomic
-                      information is not included.  It is recommended that you
-                      use the qiime shell script which is output (see QIIME
-                      SHELL SCRIPT), containing qiime commands, to produce your
-                      own BIOM file with the extra information.
-
 * QIIME SHELL SCRIPT: Each output shell script (which you may edit to fine-tune
-                    the parameters) basically contains these qiime commands:
+                      the parameters) is a bash script which basically contains
+                      these qiime commands:
 
-                    assign_taxonomy.py -i REP_SET -o taxa
-                    align_seqs.py -i REP_SET -o aln
-                    filter_alignment.py -i aln/REP_SET_aligned.ext -o filt
-                    make_phylogeny.py -i filt/REP_SET_aligned_pfiltered.ext -o phy
-                    make_otu_table.py -i OTUS -o biom_file -e aln/*_failures.fna -t taxa/*_tax_assignments.txt
+                      assign_taxonomy.py -i REP_SET -o taxa
+                      align_seqs.py -i REP_SET -o aln
+                      filter_alignment.py -i aln/REP_SET_aligned.ext -o filt
+                      make_phylogeny.py -i filt/REP_SET_aligned_pfiltered.ext -o phy
+                      make_otu_table.py -i OTUS -o otu_file -e aln/*_failures.fna -t taxa/*_tax_assignments.txt
 
-                    Alternatively, you could just do these two steps:
+                      Alternatively, you could just do these two steps:
 
-                    assign_taxonomy.py -i REP_SET -o taxa
-                    make_otu_table.py -i OTUS -o biom_file -t taxa/*_tax_assignments.txt
+                      assign_taxonomy.py -i REP_SET -o taxa
+                      make_otu_table.py -i OTUS -o otu_file -t taxa/*_tax_assignments.txt
 
-                    Or this one step:
+                      Or this one step:
 
-                    make_otu_table.py -i OTUS -o biom_file
+                      make_otu_table.py -i OTUS -o otu_file
 
-                    A shell script is output for each input sequence(/summary)
-                    file (pair).  Also a single --run-all-script is generated
-                    in order to run all output scripts with a single command.
-                    This script will be generated by default as
-                    "run_all_qiime_tax_commands.sh".  The file name you supply
-                    to --run-all-script will be the command to execute the
-                    qiime scripts.  It must be run in the directory you ran
-                    cff2qiime.pl in.  You can run it, for example, like this:
+                      A shell script is output for each input sequence
+                      (/summary) file (pair).  Also a single --run-all-script
+                      is generated in order to run all output scripts with a
+                      single command.  This script will be generated by default
+                      as "run_all_qiime_tax_commands.sh".  The file name you
+                      supply to --run-all-script will be the command to execute
+                      the qiime scripts.  It must be run in the directory you
+                      ran cff2qiime.pl in.  You can run it, for example, like
+                      this:
 
-                    bash run_all_qiime_tax_commands.sh
+                      bash run_all_qiime_tax_commands.sh
 
 end_print
 
@@ -4220,7 +4201,6 @@ sub usage
      -o                   OPTIONAL [_otus.txt] Outfile extension for otu file.
      -r                   OPTIONAL [_rep_set.fna] Outfile extension for
                                    representative sequences file.
-     -b                   OPTIONAL [no output] Outfile extension for biom file.
      --run-all-script     OPTIONAL [run_all_qiime_tax_commands.sh] Output shell
                                    qiime script to generate phylogeny and biom
                                    file with taxonomic information (saved in
@@ -4310,21 +4290,6 @@ end_print
                                    name (-i) as a stub (may be used with
                                    --outdir as well).  When standard input is
                                    detected and no stub is provided via -i,
-                                   appends to the string "STDIN".  Does not
-                                   replace existing input file extensions.  See
-                                   --extended --help for output file format and
-                                   advanced usage examples.
-     -b,--biom-suffix     OPTIONAL [no output] Outfile extension appended to -i
-                                   to create the biom file (as is produced by
-                                   make_otu_table.py in qiime when only the
-                                   *_otus.txt file is supplied).  Note, no
-                                   taxonomy information will be included.  This
-                                   file is not produced by default.  Will not
-                                   overwrite without --overwrite.   Supplying
-                                   an empty string will effectively treat the
-                                   input file name (-i) as a stub (may be used
-                                   with --outdir as well).  When standard input
-                                   is detected and no stub is provided via -i,
                                    appends to the string "STDIN".  Does not
                                    replace existing input file extensions.  See
                                    --extended --help for output file format and
