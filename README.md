@@ -177,7 +177,7 @@ Example 1 is roughly equivalent to running the following commands (the differenc
     getCandidates.pl    $outdir/L6S2?_19???.fna.lib.n0s -o .cands -f .rejects -h 30
     getReals.pl         $outdir/L6S2?_19???.fna.lib.n0s.cands -d '$outdir/L6S2?_19???.fna.lib' -f $outdir/example1.glib -k 2
     filterIndels.pl     $outdir/example1.glib.reals -o .filt -f .indels
-    cff2qiime.pl        $outdir/example1.glib.reals.filt
+    cff2qiime.pl        $outdir/example1.glib.reals.filt -s $outdir/example1.glib.reals.smry
     interestingPairs.pl $outdir/example1.glib -s $outdir/example1.glib.smry -o example1.glib.pairs
 
 Note that in the first command (mergeSeqs.pl), we turn off abundance value parsing from the fasta deflines by supplying -p ''.  While the command will work without -p '', it will generate an error because the default value expects to see abundance patterns on deflines in the form "size=#;".  If you never intend to save abundance values on your deflines, you may supply --save-as-default -p '' to save the setting.
