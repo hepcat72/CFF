@@ -167,8 +167,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "cff2qiime.pl        $ANALDIR/5_indels/$LIB.reals.filt --outdir $ANALDIR/optional_6_qiime"
-cff2qiime.pl $ANALDIR/5_indels/$LIB.reals.filt --outdir $ANALDIR/optional_6_qiime --overwrite
+echo -n "cff2qiime.pl        $ANALDIR/5_indels/$LIB.reals.filt -s $ANALDIR/4_reals_table/$LIB.smry --outdir $ANALDIR/optional_6_qiime"
+cff2qiime.pl $ANALDIR/5_indels/$LIB.reals.filt -s $ANALDIR/4_reals_table/$LIB.smry --outdir $ANALDIR/optional_6_qiime --overwrite
 if ( $status ) then
   echo
   echo
@@ -193,7 +193,11 @@ setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 echo
 echo DONE
-echo "OUTFILES:  $ANALDIR/*"
+echo "OUTFILES:"
+echo "  $ANALDIR/*"
+echo "run_all_qiime_tax_commands.sh"
+echo
+echo "Run ./run_all_qiime_tax_commands.sh to generate a biom file with taxonomic information (if you have qiime installed)."
 
 scriptend:
 
