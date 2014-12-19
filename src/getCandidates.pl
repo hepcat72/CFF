@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.15';
+my $software_version_number = '1.16';
 my $created_on_date         = '3/24/2014';
 
 ##
@@ -364,7 +364,7 @@ foreach my $set_num (0..$#$input_file_sets)
     my($rec);
 
     #For each line in the current input file
-    while($rec = getNextSeqRec(*INPUT))
+    while($rec = getNextSeqRec(*INPUT,0,$input_file))
       {
 	verboseOverMe("[$input_file] Reading record: [",($cnt + 1),"].")
 	  unless($cnt % $verbose_freq);
@@ -3307,9 +3307,11 @@ sub getNextFastqRec
       {return(undef)}
   }
 
-#Uses global variables: lastfiletype, filetype, & $input_file
+#Uses global variables: lastfiletype & filetype
 sub getNextSeqRec
   {
+    my $input_file = $_[2];
+
     debug("Determining previous type");
 
     if(!defined($main::lastfiletype) || $filetype ne 'auto')
