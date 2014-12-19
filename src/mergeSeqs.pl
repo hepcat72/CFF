@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.11';
+my $software_version_number = '2.12';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -528,7 +528,7 @@ foreach my $set_num (0..$#$input_file_sets)
     my($smallest,$smallest_id);
     if($tmp_trim_size < 0)
       {
-	while($rec = getNextSeqRec(*INPUT))
+	while($rec = getNextSeqRec(*INPUT,0,$input_file))
 	  {
 	    push(@$recs,$rec);
 	    my $s = length($rec->[1]);
@@ -540,9 +540,9 @@ foreach my $set_num (0..$#$input_file_sets)
 	  }
 	if(!defined($smallest))
 	  {
-	    error("Could not find smallest sequence in file [$input_file].  ",
-		  "Sequence file may be empty.  Skipping.  Use --force to ",
-		  "over-ride.");
+	    warning("Could not find smallest sequence in file ",
+		    "[$input_file].  Skipping.  Use --force to over-ride.")
+	      unless(-z $input_file);
 	    next unless($force);
 	  }
 	$tmp_trim_size = $smallest;
@@ -552,7 +552,7 @@ foreach my $set_num (0..$#$input_file_sets)
 		"($smallest_id).");
       }
     else
-      {@$recs = getNextSeqRec(*INPUT)}
+      {@$recs = getNextSeqRec(*INPUT,0,$input_file)}
 
     #For each line in the current input file
     foreach $rec (@$recs)
@@ -3681,9 +3681,11 @@ end_print
     return(0);
   }
 
-#Uses global variables: lastfiletype, filetype, & $input_file
+#Uses global variables: lastfiletype & filetype
 sub getNextSeqRec
   {
+    my $input_file = $_[2];
+
     debug("Determining previous type");
 
     if(!defined($main::lastfiletype) || $filetype ne 'auto')
