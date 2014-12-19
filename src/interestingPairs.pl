@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.6';
+my $software_version_number = '1.8';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -4755,7 +4755,7 @@ sub getCheckAllSeqRecs
     my($rec,$len);
 
     #For each line in the current input file
-    while($rec = getNextSeqRec(*INPUT))
+    while($rec = getNextSeqRec(*INPUT,0,$input_file))
       {
 	$cnt++;
 	verboseOverMe("[$input_file] Reading record: [$cnt].")
@@ -5353,9 +5353,11 @@ sub getNextFastqRec
       {return(undef)}
   }
 
-#Uses global variables: lastfiletype, filetype, & $input_file
+#Uses global variables: lastfiletype & filetype
 sub getNextSeqRec
   {
+    my $input_file = $_[2];
+
     debug("Determining previous type");
 
     if(!defined($main::lastfiletype) || $filetype ne 'auto')
