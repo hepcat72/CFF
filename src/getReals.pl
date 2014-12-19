@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.8';
+my $software_version_number = '1.9';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -590,7 +590,7 @@ foreach my $set_num (0..$#$input_file_sets)
     my $verbose_freq = 100;
     my $cnt          = 0;
 
-    while(my $rec = getNextSeqRec(*DRPS))
+    while(my $rec = getNextSeqRec(*DRPS,0,$drp_file))
       {
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
@@ -664,7 +664,7 @@ foreach my $set_num (0..$#$input_file_sets)
     $cnt          = 0;
     my @missing   = ();
 
-    while(my $rec = getNextSeqRec(*CANDS))
+    while(my $rec = getNextSeqRec(*CANDS,0,$input_file))
       {
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
@@ -4403,13 +4403,15 @@ sub getUchimeReals
     my $id_check     = {};
     my $all_there    = {};
 
-    while(my $rec = getNextSeqRec(*LIB))
+    while(my $rec = getNextSeqRec(*LIB,0,$lib_file))
       {
 	my($def,$seq) = @$rec;
 	$seq          = uc($seq);
 	my $id        = '';
 	my $abundance = 1;
 	$cnt++;
+
+	verboseOverMe("Reading record [$cnt] of library file [$lib_file].");
 
 	if($def =~ /\s*[\@\>]\s*(\S+)/)
 	  {
@@ -4466,27 +4468,38 @@ sub getUchimeReals
 		"ambigous IDs.");
       }
 
-    #Check that all the sequences of the candidates are present in the library
-    #and that their IDs are the same
-    foreach my $seq (@$seqs_array)
+    if(scalar(keys(%$all_there)) == 0)
       {
-	if(!exists($all_there->{$seq}))
+	error("No sequences could be parsed from the library file: ",
+	      "[$lib_file].");
+      }
+    else
+      {
+	#Check that all the sequences of the candidates are present in the
+	#libraryand that their IDs are the same
+	foreach my $seq (@$seqs_array)
 	  {
-	    error("The sequence with ID: ",
-		  "[$id_lookup->{$output_file}->{$seq}->{ID}] was not found ",
-		  "in the library file: [$lib_file]",
-		  (exists($id_check->{$id_lookup->{$output_file}->{$seq}
-				      ->{ID}}) ?
-		   ", however (strangely) the ID appears to be present in " .
-		   "the library, presumably with a different sequence." :
-		   ' and the ID is missing too.'));
-	  }
-	elsif($all_there->{$seq} ne $id_lookup->{$output_file}->{$seq}->{ID})
-	  {
-	    error("A sequence with ID [$all_there->{$seq}] in library file ",
-		  "[$lib_file] has a different ID [",
-		  $id_lookup->{$output_file}->{$seq}->{ID},
-		  "] in the candidate files.");
+	    if(!exists($all_there->{$seq}))
+	      {
+		error("The sequence [$seq] with ID: ",
+		      "[$id_lookup->{$output_file}->{$seq}->{ID}] was not ",
+		      "found in the library file: [$lib_file] (which ",
+		      "contains [",scalar(keys(%$all_there)),
+		      "] sequences total)",
+		      (exists($id_check->{$id_lookup->{$output_file}->{$seq}
+					  ->{ID}}) ?
+		       ", however (strangely) the ID appears to be present " .
+		       "in the library, presumably with a different " .
+		       "sequence." : '.'));
+	      }
+	    elsif($all_there->{$seq} ne
+		  $id_lookup->{$output_file}->{$seq}->{ID})
+	      {
+		error("A sequence with ID [$all_there->{$seq}] in library ",
+		      "file [$lib_file] has a different ID [",
+		      $id_lookup->{$output_file}->{$seq}->{ID},
+		      "] in the candidate files.");
+	      }
 	  }
       }
 
@@ -4526,7 +4539,7 @@ sub getUchimeReals
 
     openIn(*UCHIME,$tmp_out_file);
 
-    while(my $rec = getNextSeqRec(*UCHIME))
+    while(my $rec = getNextSeqRec(*UCHIME,0,$tmp_out_file))
       {
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
@@ -4580,9 +4593,11 @@ sub straightenColumns
     return($newstr);
   }
 
-#Uses global variables: lastfiletype, filetype, & $input_file
+#Uses global variables: lastfiletype & filetype
 sub getNextSeqRec
   {
+    my $input_file = $_[2];
+
     debug("Determining previous type");
 
     if(!defined($main::lastfiletype) || $filetype ne 'auto')
@@ -4669,7 +4684,7 @@ sub getNextSeqRec
 		  {
 		    debug("Num fasta deflines: [$num_fasta_defs].");
 		    error("Unable to determine file type.  Skipping file ",
-			  "[$input_file].");
+			  "[$input_file].") unless(-z $input_file);
 		    return(undef);
 		  }
 		warning("Unable to determine file type.  Defaulting to ",
@@ -4682,7 +4697,9 @@ sub getNextSeqRec
 	  }
       }
 
-    debug("Returning record");
+    debug("Returning [",($filetype ne '' ?
+			 $filetype : $main::lastfiletype->{$input_file}),
+	  "] record");
 
     return($main::getnextsub->(@_));
   }
