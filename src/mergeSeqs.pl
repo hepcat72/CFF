@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.10';
+my $software_version_number = '2.11';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -3471,15 +3471,15 @@ sub usage
 	    print << 'end_print';
      -i|--seq-file        REQUIRED Input sequence file(s).  See --help for file
                                    format.
-     -f|--outfile         OPTIONAL [stdout] Merged sequence output file.  See
+     -f|--merged-seq-file OPTIONAL [stdout] Merged sequence output file.  See
                                    --help for file format.
-     -u|--abundance-      OPTIONAL [no output] Merged tab-delimited output
+     -u|--merged-tab-file OPTIONAL [no output] Merged tab-delimited output
                                    data file.  See --help for file format.
      -o|--seq-suffix      OPTIONAL [no output]  Outfile extension appended to
                                    -i to generate a duplicate of the input file
                                    with global IDs.
-     -x|--abundance-      OPTIONAL [no output] Outfile extension appended to
-        suffix                     -i to generate a tab-delimited version of
+     -x|--tab-suffix      OPTIONAL [no output] Outfile extension appended to
+                                   -i to generate a tab-delimited version of
                                    the input file with global IDs and original
                                    source file abundances.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file type
@@ -3517,7 +3517,7 @@ end_print
                                    input file format & advanced usage examples.
                                    Do not need to supply if there is input on
                                    standard in.   *No flag required.
-     -f|--outfile         OPTIONAL [stdout] Merged sequence output file.  Will
+     -f|--merged-seq-file OPTIONAL [stdout] Merged sequence output file.  Will
                                    not overwrite without --overwite.  Default
                                    behavior prints output to standard out.  If
                                    only -u output is desired, supply -u, but do
@@ -3526,8 +3526,8 @@ end_print
                                    in this case.  See --extended --help for
                                    output file format and advanced usage
                                    examples.
-     -u|--abundance-      OPTIONAL [no output] Merged tab-delimited output data
-        outfile                    file containing sequential global sequence
+     -u|--merged-tab-file OPTIONAL [no output] Merged tab-delimited output data
+                                   file containing sequential global sequence
 				   IDs (the number at the beginning of the
                                    defline in -f) and abundance values.  See
                                    --extended --help for output file format and
@@ -3547,8 +3547,8 @@ end_print
                                    generate this output.  See --extended --help
                                    for output file format and more advanced
                                    usage examples.
-     -x|--abundance-      OPTIONAL [no output]  Outfile extension appended to
-        suffix                     -i to generate a tab-delimited version of
+     -x|--tab-suffix      OPTIONAL [no output]  Outfile extension appended to
+                                   -i to generate a tab-delimited version of
                                    the input file with global IDs and original
                                    source file abundances.  Will not overwrite
                                    without --overwite.  Explicitly supplying
