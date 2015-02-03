@@ -1,5 +1,7 @@
 #!/bin/tcsh
 
+#VERSION: 1.1
+
 #USAGE: tcsh run_CFF_on_FastA.tcsh trimlen outdir "fasta-files"
 # E.G.: tcsh run_CFF_on_FastA.tcsh 130 myanalysis "some-dir/*.fa"
 
@@ -102,8 +104,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "getReals.pl         $ANALDIR/3_cands/*.lib.n0s.cands -d '$ANALDIR/1_lib/*.lib' -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table"
-getReals.pl $ANALDIR/3_cands/{$STUBS}.lib.n0s.cands -d "$ANALDIR/1_lib/{$STUBS}.lib" -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table --overwrite
+echo -n "getReals.pl         $ANALDIR/3_cands/*.lib.n0s.cands -n '$ANALDIR/2_n0s/*.lib.n0s' -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table"
+getReals.pl $ANALDIR/3_cands/{$STUBS}.lib.n0s.cands -n "$ANALDIR/2_n0s/{$STUBS}.lib.n0s" -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table --overwrite
 if ( $status ) then
   echo
   echo
