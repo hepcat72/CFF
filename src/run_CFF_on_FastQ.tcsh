@@ -1,5 +1,7 @@
 #!/bin/tcsh
 
+#VERSION: 1.1
+
 #USAGE: tcsh run_CFF_on_FastQ.tcsh trimlen ascii_offset outdir "fastq-files"
 # E.G.: tcsh run_CFF_on_FastQ.tcsh 130 64 myanalysis "some-dir/*.fa"
 
@@ -143,8 +145,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "getReals.pl         $ANALDIR/3_cands/*.drp.fna.lib.n0s.cands -d '$ANALDIR/1_lib/*.drp.fna.lib' -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table"
-getReals.pl $ANALDIR/3_cands/{$STUBS}.drp.fna.lib.n0s.cands -d "$ANALDIR/1_lib/{$STUBS}.drp.fna.lib" -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table --overwrite
+echo -n "getReals.pl         $ANALDIR/3_cands/*.drp.fna.lib.n0s.cands -n '$ANALDIR/2_n0s/*.drp.fna.lib.n0s' -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table"
+getReals.pl $ANALDIR/3_cands/{$STUBS}.drp.fna.lib.n0s.cands -n "$ANALDIR/2_n0s/{$STUBS}.drp.fna.lib.n0s" -f $ANALDIR/1_lib/$LIB -k $K --outdir $ANALDIR/4_reals_table --overwrite
 if ( $status ) then
  echo
  echo
