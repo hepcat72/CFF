@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.9';
+my $software_version_number = '1.10';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -35,9 +35,10 @@ my $chime_aln_suffix  = '.chim-alns';
 my $reals_suffix      = '.reals';
 my $sum_suffix        = '.smry';
 my $chime_suffix      = '.chim';
+my $nzeros_suffix     = '.n0smry';
 my $input_files       = [];
 my $output_files      = [];
-my $drp_files         = [];
+my $nzero_files       = [];
 my $library_files     = [];
 my $outdirs           = [];
 my $help              = 0;
@@ -49,12 +50,14 @@ my $header            = 0;
 my $error_limit       = 50;
 my $dry_run           = 0;
 my $use_as_default    = 0;
+my $sigdig            = 3;
 my $defaults_dir      = (sglob('~/.rpst'))[0];
 my $min_candidacies   = 1;
 my $abundance_pattern = 'size=(\d+);';
 my $filetype          = 'auto';
 my $uchime            = 'usearch';
 my $seq_id_pattern    = '^\s*[>\@]\s*([^;]+)';
+my $n0_pattern        = 'N0=([^;]+);';
 my $default_tmpdir    = './';
 my $tmpdir            = exists($ENV{TMPDIR}) ? $ENV{TMPDIR} :
   (exists($ENV{TMP}) && -e $ENV{TMP} && -d $ENV{TMP} ? $ENV{TMP} :
@@ -77,8 +80,11 @@ my $GetOptHash =
 					  [sglob($_[1])])}, # <> is supplied
    '<>'                      => sub {push(@$input_files,    #REQUIRED unless
 					  [sglob($_[0])])}, # -i is supplied
-   'd|dereplicated-files=s'  => sub {push(@$drp_files,      #REQUIRED
-					  [sglob($_[1])])},
+
+   #Kept -d & --dereplicated-files for backwards compatibility
+   'n|n0-files|d|dereplicated-files=s' => sub {push(@$nzero_files, #REQUIRED
+						    [sglob($_[1])])},
+
    'f|merged-seq-file|library-file=s'
                              => sub {push(@$library_files,  #OPTIONAL [none]
 					  sglob($_[1]))},
@@ -89,6 +95,10 @@ my $GetOptHash =
 					  sglob($_[1]))},
    's|summary-suffix=s'      => \$sum_suffix,               #OPTIONAL [.smry]
    'r|reals-suffix=s'        => \$reals_suffix,             #OPTIONAL [.reals]
+   'l|n0-pattern=s'          => \$n0_pattern,               #OPTIONAL
+                                                            #     [N0=([^;]+);]
+   'n0-suffix=s'             => \$nzeros_suffix,            #OPTIONAL [.n0smry]
+   'significant-digits=s'    => \$sigdig,                   #OPTIONAL [3]
    'fakes-suffix=s'          => \$fakes_suffix,             #OPTIONAL [nooutpt]
    'chimes-suffix=s'         => \$chime_suffix,             #OPTIONAL [.chim]
    'chimes-aln-suffix=s'     => \$chime_aln_suffix,         #OPTIONAL
@@ -277,6 +287,13 @@ if($min_candidacies !~ /^[1-9]\d*$/)
     quit(3);
   }
 
+if($sigdig !~ /^\d+$/)
+  {
+    error("Invalid number of significant digits: [$sigdig].  Must be an ",
+	  "unsigned integer.");
+    quit(4);
+  }
+
 #If no outfile stubs were provided, there's at least one library file, and all
 #the suffixes are either not defined or are not empty strings (meaning that the
 #library file will not be overwritten - assumes that at least 1 of the suffixes
@@ -287,6 +304,7 @@ if(scalar(@$output_files) == 0 && scalar(@$library_files) &&
   (!defined($fakes_suffix)     || $fakes_suffix     ne '') &&
   (!defined($chime_suffix)     || $chime_suffix     ne '') &&
   (!defined($chime_aln_suffix) || $chime_aln_suffix ne '') &&
+  (!defined($nzeros_suffix)    || $nzeros_suffix    ne '') &&
   (!defined($sum_suffix)       || $sum_suffix       ne ''))
   {
     verbose("Using library file: [",join(',',@$library_files),
@@ -299,6 +317,7 @@ elsif($DEBUG < -99)
 	 '(!defined($fakes_suffix)     || $fakes_suffix     ne "") && ',
 	 '(!defined($chime_suffix)     || $chime_suffix     ne "") && ',
 	 '(!defined($chime_aln_suffix) || $chime_aln_suffix ne "") && ',
+  	 '(!defined($nzeros_suffix)    || $nzeros_suffix    ne "") && ',
 	 '(!defined($sum_suffix)       || $sum_suffix       ne ""))',
 	 "\nif(",scalar(@$output_files)," == 0 && ",scalar(@$library_files),
 	 " && (!",defined($reals_suffix),"     || $reals_suffix     ne '') ",
@@ -306,6 +325,7 @@ elsif($DEBUG < -99)
 	 (defined($fakes_suffix) ? $fakes_suffix : 'undef'),"     ne '') && ",
 	 "(!",defined($chime_suffix),"     || $chime_suffix     ne '') && (!",
 	 defined($chime_aln_suffix)," || $chime_aln_suffix ne '') && (!",
+  	 defined($nzeros_suffix),"    || $nzeros_suffix    ne '') && (!",
 	 defined($sum_suffix),"       || $sum_suffix       ne ''))")}
 
 my $num_outfiles = (scalar(@$output_files) ? scalar(@$output_files) :
@@ -317,42 +337,42 @@ if(scalar(@$input_files) == 0)
     quit(4);
   }
 
-if(scalar(@$drp_files) == 0)
+if(scalar(@$nzero_files) == 0)
   {
-    error("-d is a required parameter.");
+    error("-n is a required parameter.");
     quit(5);
   }
 
-if(scalar(@$input_files) != scalar(@$drp_files))
+if(scalar(@$input_files) != scalar(@$nzero_files))
   {
     if(scalar(grep {scalar(@$_) == 1} @$input_files) ==
-       scalar(@$input_files) && scalar(@$drp_files) == 1)
+       scalar(@$input_files) && scalar(@$nzero_files) == 1)
       {$input_files = [[map {@$_} @$input_files]]}
     else
       {
-	error("-i was supplied [",scalar(@$input_files),"] times and -d was ",
-	      "supplied [",scalar(@$drp_files),"] times.  The numbers must ",
+	error("-i was supplied [",scalar(@$input_files),"] times and -n was ",
+	      "supplied [",scalar(@$nzero_files),"] times.  The numbers must ",
 	      "be the same.");
 	quit(6);
       }
   }
 
 my $bad_indexes = [grep {scalar(@{$input_files->[$_]}) !=
-			   scalar(@{$drp_files->[$_]})}
+			   scalar(@{$nzero_files->[$_]})}
 		   (0..$#{$input_files})];
 if(scalar(@$bad_indexes))
   {
-    error("The number of files supplied to -i must be the same as to -d, ",
-	  "however a -i/-d combo with this many files respectively was ",
+    error("The number of files supplied to -i must be the same as to -n, ",
+	  "however a -i/-n combo with this many files respectively was ",
 	  "found: [",
 	  join(',',(map {scalar(@{$input_files->[$_]}) . '/' .
-			   scalar(@{$drp_files->[$_]})} @$bad_indexes)),
+			   scalar(@{$nzero_files->[$_]})} @$bad_indexes)),
 	  "].",
-	  (scalar(@{$drp_files->[0]}) == 1 ?
+	  (scalar(@{$nzero_files->[0]}) == 1 ?
 	   ("  Note that any files on the command line without a flag in ",
-	    "front of it (such as -d) or not inside quotes will be ",
-	    "considered an argument of -i.  The single -d file submitted: ",
-	    "[$drp_files->[0]->[0]].") : ''));
+	    "front of it (such as -n) or not inside quotes will be ",
+	    "considered an argument of -i.  The single -n file submitted: ",
+	    "[$nzero_files->[0]->[0]].") : ''));
     quit(7);
   }
 
@@ -381,7 +401,22 @@ if(scalar(@$input_files) > 1 &&
   {
     error("Output file stubs (-o) are required if -i is supplied multiple ",
 	  "times.");
-    quit(8);
+    quit(9);
+  }
+
+if(defined($fakes_suffix) && $fakes_suffix ne '' &&
+   scalar(@$output_files) == 0)
+  {
+    error("Output file stubs (-o) are required if --fakes-suffix is ",
+	  "supplied.");
+    quit(10);
+  }
+
+if(defined($nzeros_suffix) && $nzeros_suffix ne '' &&
+   scalar(@$output_files) == 0)
+  {
+    error("Output file stubs (-o) are required if --n0-suffix is supplied.");
+    quit(11);
   }
 
 if(#There are library files
@@ -400,7 +435,7 @@ if(#There are library files
   {
     error("The number of library files (-f) must equal the number of times ",
 	  "-i occurs on the command line.");
-    quit(9);
+    quit(12);
   }
 
 if(#There are library files
@@ -424,7 +459,7 @@ if(#There are library files
 	      (defined($tmpdir) ? ": [$tmpdir]" : '')," is invalid.  Use ",
 	      "--tmpdir and --tmp-suffix to manage temporary data (necessary ",
 	      "for running uchime) or do not supply a library file.");
-	quit(10);
+	quit(13);
       }
   }
 
@@ -432,19 +467,27 @@ if($min_candidacies !~ /^[1-9]\d*$/)
   {
     error("Invalid minimum candidacies (-k): [$min_candidacies].  Must be an ",
 	  "integer greater than 0.");
-    quit(12);
+    quit(14);
   }
 
 #Make sure uchime is properly installed if library files have been supplied
 if(scalar(@$library_files))
   {
     $uchime = getUchimeExe($uchime);
-    quit(13) if(incompatible($uchime));
+    quit(15) if(incompatible($uchime));
   }
 
 if($seq_id_pattern ne '' &&
    $seq_id_pattern !~ /(?<!\\)\((?!\?[adluimsx\-\^]*:)/)
   {$seq_id_pattern = '(' . $seq_id_pattern . ')'}
+
+if($n0_pattern =~ /^\s*$/)
+  {
+    error("-l cannot be an empty string.");
+    quit(16);
+  }
+elsif($n0_pattern !~ /(?<!\\)\((?!\?[adluimsx\-\^]*:)/)
+  {$n0_pattern = '(' . $n0_pattern . ')'}
 
 #Get all the corresponding groups of files and output directories to process
 my($input_file_sets,
@@ -452,7 +495,7 @@ my($input_file_sets,
 				      $num_outfiles ?
 				      [['STDOUT']] : [$output_files]),
 				     $input_files,
-				     $drp_files,
+				     $nzero_files,
 				     [$library_files],
 				    ],
 
@@ -460,7 +503,8 @@ my($input_file_sets,
 				      $sum_suffix,     #of the output_files
 				      $fakes_suffix,   #i.e. stubs
 				      $chime_suffix,
-				      $chime_aln_suffix],
+				      $chime_aln_suffix,
+				      $nzeros_suffix],
 				    ],
 
 				    $outdirs);
@@ -502,10 +546,10 @@ foreach my $set_num (0..$#$input_file_sets)
 
     #Not going to use the output file stub as-is.
     $input_file         = $input_file_sets->[$set_num]->[1];
-    my $drp_file        = $input_file_sets->[$set_num]->[2];
+    my $nzero_file      = $input_file_sets->[$set_num]->[2];
     my $lib_file        = $input_file_sets->[$set_num]->[3];
-    my($reals_file,$smry_file,$fakes_file,$chimes_file,$aln_file) =
-      defined($output_file_sets->[$set_num]->[0]) ?
+    my($reals_file,$smry_file,$fakes_file,$chimes_file,$aln_file,$n0_sum_file)
+      = defined($output_file_sets->[$set_num]->[0]) ?
 	split(/,/,$output_file_sets->[$set_num]->[0],-1) :
 	  (undef,undef,undef,undef);
     if(!defined($reals_file))
@@ -581,21 +625,36 @@ foreach my $set_num (0..$#$input_file_sets)
       }
     $hash->{$reals_file}->{ALNFILE} = $aln_file;
 
+    if(defined($n0_sum_file) &&
+       exists($hash->{$reals_file}) &&
+       exists($hash->{$reals_file}->{N0SFILE}) &&
+       defined($hash->{$reals_file}->{N0SFILE}) &&
+       $hash->{$reals_file}->{N0SFILE} ne $n0_sum_file)
+      {
+	error("There should be only 1 n-zeros file for every reals file, ",
+	      "however I have found multiple n-zeros files specified for ",
+	      "reals file [$reals_file]: [$n0_sum_file,",
+	      "$hash->{$reals_file}->{N0SFILE}].  Ignoring previous n-zeros ",
+	      "files.");
+      }
+    $hash->{$reals_file}->{N0SFILE} = $n0_sum_file;
+
     my $id_check = {};
 
-    openIn(*DRPS,$drp_file) || $force > 1 || next;
+    openIn(*N0S,$nzero_file) || $force > 1 || next;
 
     next if($dry_run);
 
     my $verbose_freq = 100;
     my $cnt          = 0;
 
-    while(my $rec = getNextSeqRec(*DRPS,0,$drp_file))
+    while(my $rec = getNextSeqRec(*N0S,0,$nzero_file))
       {
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
 	my $id        = '';
 	my $abundance = 1;
+	my $n0        = '';
 	$cnt++;
 
 	if($def =~ /\s*[\@\>]\s*(\S+)/)
@@ -608,18 +667,28 @@ foreach my $set_num (0..$#$input_file_sets)
 	      {
 		$id = $default_id;
 		warning("Unable to parse seqID from defline: [$def] ",
-			"in dereplicated file: [$drp_file] using pattern: ",
+			"in N-Zeros file: [$nzero_file] using pattern: ",
 			"[$seq_id_pattern].  Please either fix the ",
 			"defline or use a different pattern to extract ",
 			"the seqID value.  Using default ID: [$id].  ",
 			"Use \"-q ''\" to to avoid this warning.")
 		  if($seq_id_pattern ne '');
 	      }
+
+	    if($def =~ /$n0_pattern/)
+	      {$n0 = $1}
+	    elsif(defined($nzeros_suffix) && $nzeros_suffix ne '')
+	      {
+		warning("Unable to parse N0 from defline: [$def] in file: [",
+			"$input_file] using pattern: [$n0_pattern].  Please ",
+			"either fix the defline or use a different pattern ",
+			"(-l) to extract the N0 value.");
+	      }
 	  }
 	else
 	  {
 	    warning("Could not parse defline in record [$cnt] of file ",
-		    "[$drp_file]: [$def].  Please edit the file to contain ",
+		    "[$nzero_file]: [$def].  Please edit the file to contain ",
 		    "IDs.");
 	  }
 
@@ -628,7 +697,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	else
 	  {
 	    warning("Unable to parse abundance from defline: [$def] in ",
-		    "record $cnt of dereplicated file: [$drp_file] using ",
+		    "record $cnt of N-Zeros file: [$nzero_file] using ",
 		    "pattern: [$abundance_pattern].  Please either fix the ",
 		    "defline or use a different pattern (-p) to extract the ",
 		    "abundance value.  Assuming abundance is 1.");
@@ -638,18 +707,19 @@ foreach my $set_num (0..$#$input_file_sets)
 
 	$hash->{$reals_file}->{GLOBAL_ABUND}->{$seq} += $abundance;
 
-	$hash->{$reals_file}->{DRPS}->{$seq}->{$input_file} =
+	$hash->{$reals_file}->{N0S}->{$seq}->{$input_file} =
 	  {ID    => $id,
 	   ABUND => $abundance,
-	   REC   => $rec};
+	   REC   => $rec,
+	   N0    => $n0};
       }
 
-    closeIn(*DRPS);
+    closeIn(*N0S);
 
     my @ambigs = grep {$id_check->{$_} > 1} keys(%$id_check);
     if(scalar(@ambigs))
       {
-	warning("Dereplicated file: [$drp_file] contains ambiguous IDs.  ",
+	warning("N-Zeros file: [$nzero_file] contains ambiguous IDs.  ",
 		"These IDs were found on the indicated number of deflines: [",
 		join(',',map {"$_:$id_check->{$_}"} @ambigs),"].  The ",
 		"resulting output files might contain ambigous IDs.");
@@ -667,7 +737,7 @@ foreach my $set_num (0..$#$input_file_sets)
     while(my $rec = getNextSeqRec(*CANDS,0,$input_file))
       {
 	my($def,$seq) = @$rec;
-	$seq = uc($seq);
+	$seq          = uc($seq);
 	my $id        = '';
 	$cnt++;
 
@@ -696,7 +766,7 @@ foreach my $set_num (0..$#$input_file_sets)
 		  "IDs and abundance values on the deflines.");
 	  }
 
-	if(!exists($hash->{$reals_file}->{DRPS}->{$seq}))
+	if(!exists($hash->{$reals_file}->{N0S}->{$seq}))
 	  {push(@missing,$id)}
 
 	$id_check->{$id}++;
@@ -709,14 +779,14 @@ foreach my $set_num (0..$#$input_file_sets)
 		  "[$id_lookup->{$reals_file}->{$seq}->{FL}] has ID: ",
 		  "[$id_lookup->{$reals_file}->{$seq}->{ID}], but candidate ",
 		  "file: [$input_file] has ID: [$id].  All IDs between all ",
-		  "candidate and dereplicated files should be globally ",
+		  "candidate and n-zeros files should be globally ",
 		  "consistent.  Ignoring all previous conflicting IDs.");
 	  }
 	$id_lookup->{$reals_file}->{$seq}->{ID} = $id;
 	$id_lookup->{$reals_file}->{$seq}->{FL} = $input_file;
 
 	$hash->{$reals_file}->{CANDS}->{$seq}->{$input_file} = {ID  => $id,
-								 REC => $rec};
+								REC => $rec};
       }
 
     closeIn(*CANDS);
@@ -737,7 +807,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	  (@missing[0..8],'...') : @missing;
 	error("The candidate sequences from candidate file [$input_file] ",
 	      "with these IDs [",join(',',@report_missing),"] were missing ",
-	      "in the dereplicated file [$drp_file].  Abundances may be ",
+	      "in the N-Zeros file [$nzero_file].  Abundances may be ",
 	      "missing from the output table in [$smry_file].");
       }
   }
@@ -749,6 +819,7 @@ foreach my $reals_file (keys(%$hash))
     my $chimes_file = $hash->{$reals_file}->{CHIMESFILE};
     my $aln_file    = $hash->{$reals_file}->{ALNFILE};
     my $lib_file    = $hash->{$reals_file}->{LIBFILE};
+    my $n0_sum_file = $hash->{$reals_file}->{N0SFILE};
     my $chimeras    = {};
 
     #Determine K-filtered candidates
@@ -834,13 +905,13 @@ foreach my $reals_file (keys(%$hash))
 	      {
 		$table_str .= "\t";
 		if(exists($hash->{$reals_file}) &&
-		   exists($hash->{$reals_file}->{DRPS}->{$seq}) &&
-		   exists($hash->{$reals_file}->{DRPS}->{$seq}
+		   exists($hash->{$reals_file}->{N0S}->{$seq}) &&
+		   exists($hash->{$reals_file}->{N0S}->{$seq}
 			  ->{$input_file}) &&
-		   $hash->{$reals_file}->{DRPS}->{$seq}->{$input_file}
+		   $hash->{$reals_file}->{N0S}->{$seq}->{$input_file}
 		   ->{ABUND})
 		  {$table_str .=
-		     $hash->{$reals_file}->{DRPS}->{$seq}->{$input_file}
+		     $hash->{$reals_file}->{N0S}->{$seq}->{$input_file}
 		       ->{ABUND}}
 		else
 		  {$table_str .= '0'}
@@ -851,6 +922,47 @@ foreach my $reals_file (keys(%$hash))
 	print(straightenColumns($table_str));
 
 	closeOut(*SMRY);
+      }
+
+    #Print the n-zeros table
+    if(defined($n0_sum_file) && $n0_sum_file ne '')
+      {
+	#Print the summary table file
+	checkFile($n0_sum_file)      || next;
+	openOut(*N0S,$n0_sum_file,1) || next;
+
+	my $table_str =
+	  "#ID\t" . join("\t",
+			 sort {$a cmp $b}
+			 map {my $f = $_;$f =~ s/.*\///;$f}
+			 getVariablePrefixes(@{$hash->{$reals_file}
+						 ->{SAMPLES}})) . "\n";
+
+	foreach my $seq (@$real_seqs)
+	  {
+	    my $id = exists($id_lookup->{$reals_file}) &&
+	      exists($id_lookup->{$reals_file}->{$seq}) ?
+		$id_lookup->{$reals_file}->{$seq}->{ID} : 'ERR-ID-MISSING';
+	    $table_str .= "$id";
+	    foreach my $input_file (@{$hash->{$reals_file}->{SAMPLES}})
+	      {
+		$table_str .= "\t";
+		if(exists($hash->{$reals_file}) &&
+		   exists($hash->{$reals_file}->{N0S}->{$seq}) &&
+		   exists($hash->{$reals_file}->{N0S}->{$seq}
+			  ->{$input_file}) &&
+		   defined($hash->{$reals_file}->{N0S}->{$seq}->{$input_file}
+			   ->{N0}))
+		  {$table_str .=
+		     sigdig($hash->{$reals_file}->{N0S}->{$seq}->{$input_file}
+			    ->{N0},$sigdig)}
+	      }
+	    $table_str .= "\n";
+	  }
+
+	print(straightenColumns($table_str));
+
+	closeOut(*N0S);
       }
 
     #If there was a fakes file
@@ -3859,30 +3971,40 @@ Princeton, NJ 08544
 rleach\@genomics.princeton.edu
 
 * WHAT IS THIS: This script takes a series of candidate files in fasta format
-                (e.g. each from a different sample and produced by
-                getCandidates.pl), the series of dereplicated fasta sequence
-                files that were used to generate them (i.e. generated by
-                mergeSeqs.pl), and an optional* global library file (-f)
-                required for chimera identification; and generates 4 types of
-                output files: a file of
-                "real" sequences (see --reals-suffix), a tab-delimited summary
-                file of abundances of all real sequences across all samples
-                (see --summary-suffix), a file of chimeric sequences* (see
-                --chimes-suffix), and a file of aligned chimeric sequences*
-                (see --chimes-aln-suffix).
-                *Chimeric output is produced only if a library file (-f) is
-                provided.  Chimera filtering is done using uchime.  If found,
-                chimeras are removed from the reals file.
+                (presumably, each file is from a different sample and was
+                produced by getCandidates.pl), a series of N0 sequence files*
+                (presumably, produced by nZeros.pl), and an optional** global
+                library file (-f) required for chimera identification.  If a
+                sequence is a candidate in a threshold number of samples (-k),
+                it is considered to be real.  Five types of output files are
+                generated by default: a file of "real" sequences (see
+                --reals-suffix), a tab-delimited summary file of abundances of
+                all real sequences across all samples (see --summary-suffix), a
+                tab-delimited summary file of N0 values of all real sequences
+                across all samples (see --n0-suffix), a file of chimeric
+                sequences** (see --chimes-suffix), and a file of aligned
+                chimeric sequences** (see --chimes-aln-suffix).
+
+                *  N-Zeros files are used to retrieve abundance & N0 values of
+                   sequences that were not candidates in a specific sample
+                   because they fell below the N0 threshold.
+
+                ** Chimeric output is produced only if a library file (-f) is
+                   provided.  Chimera filtering is done using uchime.  If
+                   found, chimeras are removed from the reals file.
 
                 For more information on uchime, see the uchime documentation:
                 http://drive5.com/uchime/uchime_download.html
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
-  -i,-d,-f         ungapped, aligned, and same-sized sequences and with a
-                   unique identifier followed by an abundance value on the
+  -i,-n,-f         ungapped, aligned, and same-sized sequences and with a
+                   unique identifier followed by abundance and N0 values on the
                    defline.  Default defline format looks like this example:
 
-                   >lib_6;size=1002;
+                   >lib_6;size=1002;N0=0;
+
+                   N0 values don't need to be on the deflines of the candidates
+                   files (-i).
 
                    Any defline format can be used as long as it is consistent,
                    both pieces of information are present, and the identifier
@@ -3913,15 +4035,28 @@ TCCACGCCGTAAACGATGTCAACTAGCCGTTGGGCCCTTTATGGGTTTAGTGGCGCAGCTAACGCATTAAGTTGACCGCC
                            are used to form column headers with common
                            extensions and file paths removed.  Example:
 
-#ID   	5_77	5_78	5_79	5_80	5_81	5_82	5_83	5_84	5_85	5_86
-lib_73	0   	0   	0   	0   	0   	5   	4   	13  	21  	5   
-lib_7 	32  	24  	143 	104 	196 	57  	444 	401 	118 	235 
-lib_75	3   	17  	3   	11  	0   	10  	2   	0   	1   	0   
-lib_58	12  	17  	11  	11  	4   	11  	4   	0   	4   	2   
-lib_14	125 	82  	86  	38  	28  	94  	65  	30  	71  	36  
-lib_28	36  	22  	14  	23  	5   	60  	14  	4   	34  	11  
-lib_65	15  	2   	1   	2   	12  	9   	2   	6   	10  	2   
+#ID   	5_77	5_78	5_79	5_80	5_81	5_82	5_83	5_84	5_85
+lib_73	0   	0   	0   	0   	0   	5   	4   	13  	21  
+lib_7 	32  	24  	143 	104 	196 	57  	444 	401 	118 
+lib_75	3   	17  	3   	11  	0   	10  	2   	0   	1   
+lib_58	12  	17  	11  	11  	4   	11  	4   	0   	4   
+lib_14	125 	82  	86  	38  	28  	94  	65  	30  	71  
+lib_28	36  	22  	14  	23  	5   	60  	14  	4   	34  
+lib_65	15  	2   	1   	2   	12  	9   	2   	6   	10  
 
+
+* OUTPUT N0 FORMAT: Tab-delimited text file where each row represents a
+  --summary-suffix  different sequence and each column represents a different
+  (,-o)             sample.  The format is exactly like the OUTPUT ABUNDANCE
+                    FORMAT above, except that the values in the table are N0
+                    values of each sequence/sample combination instead of
+                    abundances.  Only real sequences are represented (those
+                    which occurred in at least -k samples and passed chimera
+                    filtering (if -f was provided).  Columns in the file are
+                    filled in with spaces to make them easier to read with a
+                    fixed-width font.  Note that file names are used to form
+                    column headers with common extensions and file paths
+                    removed.  See the OUTPUT ABUNDANCE FORMAT example above.
 
 * OUTPUT ALIGNMENT FORMAT: See uchime documentation for the -uchimealns option.
   --chimes-aln-suffix      http://drive5.com/uchime/uchime_download.html
@@ -4051,11 +4186,11 @@ sub usage
 	  {
 	    print << 'end_print';
      -i                   REQUIRED Space-separated candidate sequence files.
-     -d                   REQUIRED Space-separated dereplicated sequence files.
+     -n                   REQUIRED Space-separated N0 sequence files.
      -f                   OPTIONAL Dereplicated sequence library file for
                                    chimera filtering.
-     -o                   OPTIONAL [-f/stdout*] Stub for naming output files.
-                                   *Supply --extended only for details.
+     -o                   OPTIONAL [*] Stub for naming output files.  *Supply
+                                   --extended for details.
      -k                   OPTIONAL [1] The minimum number of times a sequence
                                    must occur as a candidate across all -i
                                    files of a single set in order to be deemed
@@ -4066,28 +4201,16 @@ sub usage
                                    goes to standard out if -o is not provided.
      --reals-suffix       OPTIONAL [.reals] Extension appended to the output
                                    stub (-o) for outputting "real" sequences.
-     --fakes-suffix       OPTIONAL [no output] Extension appended to the output
-                                   stub (-o) for outputting "fake" sequences
-                                   (fewer candidate occurrences than -k).
      --chimes-suffix      OPTIONAL [.chim] Extension appended to the output
                                    stub (-o) for outputting chimeric sequences.
      --chimes-aln-suffix  OPTIONAL [.chim-aln] Extension appended to the output
                                    stub (-o) for outputting chimeric sequences.
+     --n0-suffix          OPTIONAL [.n0smry] Extension appended to the output
+                                   stub (-o) for outputting a table of "real"
+                                   N0 values per sample.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Also see --help.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
-     --quiet              OPTIONAL Quiet mode.
-     --skip-existing      OPTIONAL Skip existing output files.
-     --overwrite          OPTIONAL Overwrite existing output files.
-     --force              OPTIONAL Ignore critical errors.
-     --header             OPTIONAL Print commented script version, date, and
-                                   command line call to each outfile.
-     --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
-     --error-type-limit   OPTIONAL [50] Limit number of outputs for each error/
-                                   warning type.  0 = no limit.
-     --dry-run            OPTIONAL Run without generating output files.
-     --version            OPTIONAL Print version info.
-     --use-as-default     OPTIONAL Save the command line arguments.
      --help               OPTIONAL Print info and format descriptions.
      --extended           OPTIONAL Print extended usage/help/version/header
                                    when supplied with corresponding the flags.
@@ -4098,30 +4221,30 @@ end_print
 	else #Advanced options/extended usage output
 	  {
 	    print << 'end_print';
-     -i,                  REQUIRED Space-separated input candidate sequence
-     --candidate-seq-file*         file(s) inside quotes (e.g. -i "*.txt
-                                   *.text").  Expands standard bsd glob
+     -i                   REQUIRED Space-separated input candidate sequence
+     --candidate-seq-              file(s) inside quotes (e.g. -i "*.txt
+       files*                      *.text").  Expands standard bsd glob
                                    characters (e.g. '*', '?', etc.).  There
                                    must be the same number and order of files
-                                   as provided to -d.  All IDs are expected to
+                                   as provided to -n.  All IDs are expected to
                                    be unique and consistent with those in the
-                                   -d and -f files.  When standard input
+                                   -n and -f files.  When standard input
                                    detected, -o has been supplied, and -i is
                                    given only 1 value, it will be used as a
                                    file name stub.  See --extended --help for
                                    input file format and more advanced usage
                                    examples.  *No flag required.
-     -d,                  REQUIRED Space-separated input dereplicated sequence
-     --dereplicated-files          file(s) inside quotes (e.g. -i "*.txt
-                                   *.text").  There must be the same number and
-                                   order of files as provided to -i.  All IDs
-                                   are expected to be unique and consistent
-                                   with those in the -i and -f files.  Expands
+     -n                   REQUIRED Space-separated input N0 sequence file(s)
+     --n0-files                    inside quotes (e.g. -i "*.txt *.text").
+                                   There must be the same number and order of
+                                   files as provided to -i.  All IDs are
+                                   expected to be unique and consistent with
+                                   those in the -i and -f files.  Expands
                                    standard bsd glob characters (e.g. '*', '?',
                                    etc.).  See --extended --help for input file
                                    format and more advanced usage examples.
-     -f,                  OPTIONAL Space-separated input dereplicated sequence
-     --merged-seq-file,            library file for chimera filtering.  If a
+     -f                   OPTIONAL Space-separated input dereplicated sequence
+     --merged-seq-file             library file for chimera filtering.  If a
      --library-file                chimera is found, it will be moved from the
                                    real category to the fake category (see
                                    --reals-suffix).  No chimera filtering will
@@ -4129,26 +4252,38 @@ end_print
                                    be 1 file for  every set of files provided
                                    by one -i flag.  All IDs are expected to be
                                    unique and consistent with those in the -i
-                                   and -d files.  Every ID in the -i files must
+                                   and -n files.  Every ID in the -i files must
                                    be present, though more IDs are allowed.
-     -o,--outfile,        OPTIONAL [-f/stdout*] Output filename stub for naming
-                                   output files.  See the suffix options below.
-                                   There should be an outfile stub for every
-                                   set of files provided by one -i flag.  If -f
-                                   is provided and -o is not provided, the -f
+     -o                   OPTIONAL [*] Output filename stub for naming output
+     --outfile                     files.  Supply an outfile stub for every set
+                                   of files provided by one -i flag.  *If -f is
+                                   provided and -o is not provided, the -f
                                    files will be used as stubs.  If neither are
-                                   provided, the table output of
-                                   --summary-suffix goes to standard out and
-                                   all other suffix options are ignored.
-     -k,--min-candidacies OPTIONAL [1] The minimum number of times a sequence
-                                   must occur as a candidate across all -i
+                                   provided, the table output of -s goes to
+                                   standard out and all other suffix options
+                                   are ignored.  See the --*-suffix options.
+     -k                   OPTIONAL [1] The minimum number of times a sequence
+     --min-candidacies             must occur as a candidate across all -i
                                    files of a single set in order to be deemed
                                    real.  Must be greater than 0.
-     -t,                  OPTIONAL [auto](fasta,fastq,auto) Input file (-i, -d,
+     -t                   OPTIONAL [auto](fasta,fastq,auto) Input file (-i, -n,
      --sequence-filetype           -f) type.  Using this instead of auto will
                                    make file reading faster.  "auto" cannot be
                                    used when redirecting a file in.
-     -p,                  OPTIONAL [size=(\\d+);] A perl regular expression
+     -q                   OPTIONAL [^\\s*[>\\\@]\\s*([^;]+)] A perl regular
+     --seq-id-pattern              expression to extract seq IDs from deflines.
+                                   The ID pattern must be surrounded by
+                                   parenthases.  If no parenthases are
+                                   provided, the entire pattern is assumed to
+                                   be the ID.  If the pattern does not match,
+                                   a default pattern that uses the first string
+                                   up to the first white space will be used.
+                                   Sequence IDs are captured this way to
+                                   allow flexibility of file format.  Note, the
+                                   entire defline, without the trailing hard
+                                   return but including the '>' or '\@'
+                                   character is available to match against.
+     -p                   OPTIONAL [size=(\\d+);] A perl regular expression
      --abundance-pattern           used to extract the abundance value from the
                                    fasta/fastq defline of the input sequence
                                    file.  The abundance value pattern must be
@@ -4160,13 +4295,28 @@ end_print
                                    entire defline, without the trailing hard
                                    return but including the '>' or '\@'
                                    character is available to match against.
-     -s,--summary-suffix  OPTIONAL [.smry] Extension appended to the output
-                                   stub (-o) for outputting a table of "real"
+     -l                   OPTIONAL [N0=([^;]+);] A perl regular expression
+     --n0-pattern                  used to extract the N0 value from the fasta/
+                                   fastq defline of the candidate sequence file
+                                   (-i).  The N0 value pattern must be
+                                   surrounded by parenthases.  If no
+                                   parenthases are provided, the entire pattern
+                                   will be assumed to be the N0 value.  N0
+                                   values are captured this way to allow
+                                   flexibility of file format.  Note, the
+                                   entire defline, without the trailing hard
+                                   return but including the '>' or '\@'
+                                   character is available to match against.
+     -s                   OPTIONAL [.smry] Extension appended to the output
+     --summary-suffix              stub (-o) for outputting a table of "real"
                                    sequence abundances per sample.  Defaults to
                                    standard out if -o is not provided
                                    regardless of the extension provided here.
-     -r,--reals-suffix    OPTIONAL [.reals] Outfile extension appended to the
-                                   output file stubs (-o) to create a fasta
+     --n0-suffix          OPTIONAL [.n0smry] Extension appended to the output
+                                   stub (-o) for outputting a table of "real"
+                                   N0 values per sample.
+     -r                   OPTIONAL [.reals] Outfile extension appended to the
+     --reals-suffix                output file stubs (-o) to create a fasta
                                    output file of "real" sequences (not a
                                    chimeric sequence (if -f provided) and
                                    occurs as a candidate in >= -k samples).
@@ -4197,8 +4347,11 @@ end_print
                                    sequences.  This is the output created by
                                    uchime, given the -uchimealns option.  Only
                                    used when -f is provided.
-     -y,--uchime-exe      OPTIONAL [usearch -uchime_denovo] The command to use
-                                   to call uchime.
+     --significant-digits OPTIONAL [3] Number of significant digits to report
+                                   in the --n0-suffix file.  0 means all digits
+                                   are significant.
+     -y                   OPTIONAL [usearch -uchime_denovo] The command to use
+     --uchime-exe                  to call uchime.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Default output
                                    directory is the same as that containing
@@ -4244,7 +4397,7 @@ end_print
      --dry-run            OPTIONAL Run without generating output files.
      --version            OPTIONAL Print version info.  Includes template
                                    version with --extended.
-     --use-as-default,    OPTIONAL Save the command line arguments.  Saved
+     --use-as-default     OPTIONAL Save the command line arguments.  Saved
      --save-as-default             defaults are printed at the bottom of this
                                    usage output.  Supplying this flag replaces
                                    those defaults with all options that are
@@ -5228,4 +5381,179 @@ sub getVariablePrefixes
       }
 
     return(wantarray ? @strs : [@strs]);
+  }
+
+#Enforces significant digits to number of $places supplied (unlimited if 0)
+#Trims leading zeros
+#Trims trailing zeros after the decimal
+#Pads with zeros after the decimal up to $places digits if $pad is true
+#Pads with zeros up to $pad digits if $places is 0
+#Does not touch exponents
+#Prepends a 1 to exponent values if it does not begin with a number
+sub sigdig
+  {
+    my $num     = $_[0];
+    my $places  = $_[1];
+
+    #Pad with 0's by adding decimal places up to $places significant digits, or
+    #if $places is 0, up to the pad value (note there can still be numbers in
+    #this case with more significant digits than specified by the pad value)
+    my $pad     = defined($_[2]) ? ($places > 0 && $_[2] ? $places : $_[2]) :
+      0;
+
+    my $new_num = '';
+
+    if(!defined($places) || $places !~ /\d/ || $places =~ /\D/ || $places < 0)
+      {
+	error("An invalid number of significant digits was specified.");
+	return($num);
+      }
+    #0 means all are significant digits
+    elsif($places == 0)
+      {
+	$new_num = $num;
+	my $cur_sig_dig = getsigdig($new_num);
+	if($pad > $cur_sig_dig)
+	  {
+	    #If there's an exponent
+	    if($new_num =~ /^([+\-]?[0-9\.]+)(e[+\-]?[0-9\.]+)$/i)
+	      {
+		my $pree = $1;
+		my $e    = $2;
+		return(sigdig($pree,$places,$pad).$e);
+	      }
+	    #If there's an exponent and no preceding number
+	    elsif($new_num =~ /^([+\-]?)e[+\-]?[0-9\.]+$/i)
+	      {
+		my $sign = $1;
+		my $e    = $2;
+		return(sigdig($sign.'1',$places,$pad).$e);
+	      }
+	    #Pad the number
+	    else
+	      {
+		if($new_num !~ /\./)
+		  {$new_num .= '.'}
+		$new_num .= '0' x ($pad - $cur_sig_dig);
+		return($new_num);
+	      }
+	  }
+
+	return($new_num);
+      }
+
+    #If there's an exponent with a preceding number
+    if($num =~ /^([+\-]?[0-9\.]*)(e[+\-]?[0-9\.]+)$/i)
+      {
+	my $pree = $1;
+	my $e    = $2;
+	$pree = $pree . '1' if($pree !~ /\d/);
+	return(sigdig($pree,$places,$pad).$e);
+      }
+    elsif($num =~ /[^0-9\.+\-]/ || $num =~ /\..*\./ || $num =~ /.[+\-]/)
+      {
+	error("Invalid number format: [$num].");
+	return($num);
+      }
+    elsif($num == 0)
+      {
+	if($pad)
+	  {
+	    $new_num = '0.';
+	    if($new_num !~ /\./)
+	      {$new_num .= '.'}
+	    $new_num .= '0' x $pad;
+	    return($new_num);
+	  }
+	return(0);
+      }
+
+    my $first_real   = 0;
+    my $num_added    = 0;
+    my $decimal_seen = 0;
+    my $last_digit   = 0;
+    my $sign         = '';
+    foreach my $digit (unpack("(A)*",$num))
+      {
+        if($digit =~ /\+|-/)
+          {
+            $sign = $digit;
+            next;
+          }
+        if($digit =~ /[1-9]/)
+          {$first_real = 1}
+        elsif($digit eq '.')
+          {
+            $decimal_seen = 1;
+            if($new_num eq '')
+              {$new_num = '0'}
+            if($num_added < $places)
+              {$new_num .= '.'}
+            elsif($num_added > $places)
+              {last}
+            next;
+          }
+
+        if($first_real)
+          {
+            if($num_added < $places)
+              {
+                $new_num .= $digit;
+                $num_added++;
+              }
+            elsif($num_added == $places)
+              {
+                if($digit >= 5)
+                  {
+                    #This gets rid of the decimal
+                    my $tmp_num = join("",split(/\D*/,$new_num)) + 1;
+                    if($new_num =~ /\.(\d*)$/)
+                      {
+                        my $len = length($1);
+                        unless($tmp_num =~ s/(?=\d{$len}\Z)/./)
+                          {
+                            if($new_num =~ /^(0\.0+)/)
+                              {$tmp_num = "$1$tmp_num"}
+                          }
+                      }
+                    $new_num = $tmp_num;
+                  }
+
+		#If we haven't gotten to the end of the whole number yet
+                if(!$decimal_seen)
+                  {
+                    $new_num .= '0';
+                    $num_added++;
+                  }
+                else
+                  {last}
+              }
+            elsif(!$decimal_seen)
+              {
+                $new_num .= '0';
+                $num_added++;
+              }
+            else
+              {last}
+            $last_digit = $digit;
+          }
+        elsif($decimal_seen)
+          {$new_num .= '0'}
+      }
+
+    if($pad)
+      {
+	my $cur_sig_dig = getsigdig($new_num);
+	if($pad > $cur_sig_dig && $new_num !~ /\./)
+	  {$new_num .= '.'}
+	$new_num .= '0' x ($pad - $cur_sig_dig);
+      }
+    #Trim the trailing zeros
+    elsif($new_num =~ /\./i)
+      {
+	$new_num =~ s/0+$//;
+	$new_num =~ s/\.$//;
+      }
+
+    return("$sign$new_num");
   }
