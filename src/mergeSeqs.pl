@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.12';
+my $software_version_number = '2.13';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -654,8 +654,16 @@ foreach my $set_num (0..$#$input_file_sets)
 	      }
 	  }
 
+	#Warn about possibly erroneous duplicate records if they have the same
+	#ID, the sequence exists, and the abundance of one of the records is
+	#greater than 1
 	if(exists($seq_hash->{$input_file}) &&
-	   exists($seq_hash->{$input_file}->{$id}))
+	   exists($seq_hash->{$input_file}->{$id}) &&
+	   exists($abundance_hash->{$file_key}) &&
+	   exists($abundance_hash->{$file_key}->{$file_key2}) &&
+	   exists($abundance_hash->{$file_key}->{$file_key2}->{SEQS}
+		  ->{$seq}) &&
+	   ($seq_hash->{$input_file}->{$id} > 1 || $abundance > 1))
 	  {$warn_dupes++}
 
 	$seq_hash->{$input_file}->{$id} = $abundance;
