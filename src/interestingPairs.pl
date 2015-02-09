@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.8';
+my $software_version_number = '1.9';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -5620,12 +5620,12 @@ sub incompatible
 	error('Perl Module [Math::Random] not found.');
 	return(1);
       }
-    unless(eval("use Statistics::Distributions;1;") ||
-	   eval("use local::lib;use Statistics::Distributions;1;"))
-      {
-	error('Perl Module [Statistics::Distributions] not found.');
-	return(1);
-      }
+#    unless(eval("use Statistics::Distributions;1;") ||
+#	   eval("use local::lib;use Statistics::Distributions;1;"))
+#      {
+#	error('Perl Module [Statistics::Distributions] not found.');
+#	return(1);
+#      }
 
     return(0);
   }
@@ -6715,10 +6715,10 @@ sub getPearson
       }
     else
       {
-	eval("use Statistics::Distributions;1;") ||
-	  eval("use local::lib;use Statistics::Distributions;1;") ||
-	    error("Perl module [Statistics::Distributions] not found.") ||
-	      quit(19);
+#	eval("use Statistics::Distributions;1;") ||
+#	  eval("use local::lib;use Statistics::Distributions;1;") ||
+#	    error("Perl module [Statistics::Distributions] not found.") ||
+#	      quit(19);
 
 	my $adjusted_targets     = [];
 	my $adjusted_non_targets = [];
