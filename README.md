@@ -141,9 +141,11 @@ You may already have some of these modules, but some might be too old, so note t
 
 Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
 
-    perl Makefile.PL
+    perl Makefile.PL       --
     make
     sudo make install
+
+-- Use the path to the version of perl you want to use and the perl path at the top of the scripts will be changed to match.  This can be changed at any time by rerunning these commands.
 
 To run filterIndels.pl without error (unless running in --pre-filter-mode or --homopolymer-mode), you need to have muscle installed and in your PATH.  If it's not in your path, you can supply the muscle executable with full path to the -y option.  You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.
 
