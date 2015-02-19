@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.5';                   #Global
+my $software_version_number = '1.6';                   #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -275,6 +275,13 @@ foreach my $set_num (0..$#$input_file_sets)
 	print REPSET ("$def\n$seq\n");
       }
 
+    if($cnt == 0)
+      {
+	warning("No records could be parsed from sequence file: ",
+		"[$input_file].  Skipping it and summary file: [$smry_file].");
+	next;
+      }
+
     if(defined($smry_file))
       {
 	my @sample_ids   = ();
@@ -369,16 +376,6 @@ foreach my $set_num (0..$#$input_file_sets)
 	  }
 	else
 	  {
-	    if(scalar(keys(%$missing_hash)))
-	      {
-		my @report_missing = (scalar(keys(%$missing_hash)) > 10 ?
-				      ((keys(%$missing_hash))[0..8],'...') :
-				      keys(%$missing_hash));
-		warning("These OTU IDs found in the summary file ",
-			"[$smry_file] were missing in the main sequence file ",
-			"and have been skipped: [",join(',',@report_missing),
-			"].  Use --force to include missing IDs.");
-	      }
 	    if(scalar(keys(%$col_anoms)))
 	      {
 		my @report_anoms = (scalar(keys(%$col_anoms)) > 10 ?
