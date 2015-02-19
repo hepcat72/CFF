@@ -11,3 +11,4 @@ pm_to_blib
 samples/Caporaso_FASTQ_out
 samples/Caporaso_FASTA_out
 run_all_qiime_tax_commands.sh
+samples/Caporaso_GutSamples_out
