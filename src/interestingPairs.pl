@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.9';
+my $software_version_number = '1.11';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -462,7 +462,7 @@ my($input_file_sets,   #getFileSets(3DinfileArray,2DsuffixArray,2DoutdirArray)
 				    #input file, thus the first suffix is undef
 				    #The other files are fully named outfiles,
 				    #so the suffix is an empty string (if
-				    #output files were supplied - otherwise
+				    #output files were supplied) - otherwise
 				    #undef
 				    [[],
 				     [],
@@ -732,7 +732,7 @@ foreach my $output_file (keys(%$seq_hash))
 
     #Open the output file
     if($output_file ne 'STDOUT')
-      {openOut(*PAIRS,$output_file)}
+      {openOut(*PAIRS,$output_file) || next}
 
     reportPairs($abund_pair_hash,
 		$seq_pair_hash,
@@ -3535,6 +3535,8 @@ sub makeCheckOutputs
        #If any file has multiple types
        scalar(grep {scalar(keys(%$_)) > 1} values(%$unique_hash)))
       {
+	debug("Checking for uniqueness of outfile types.") if($DEBUG < 0);
+
 	my @report_errs = grep {scalar(keys(%{$unique_hash->{$_}})) > 1}
 	  keys(%$unique_hash);
 	@report_errs = (@report_errs[0..8],'...')
@@ -3557,6 +3559,8 @@ sub makeCheckOutputs
 	  scalar(grep {$_ > 1} map {values(%$_)} grep {exists($_->{0})}
 		 map {values(%$_)} values(%$unique_hash)))
       {
+	debug("Checking for uniqueness of outfile names.") if($DEBUG < 0);
+
 	my @report_errs =
 	  grep {my $k = $_;scalar(grep {exists($_->{0}) && $_->{0} > 0}
 				  values(%{$unique_hash->{$k}}))}
@@ -3576,11 +3580,13 @@ sub makeCheckOutputs
     #Quit if any of the outfiles created already exist
     else
       {
+	debug("Checking for existing outfiles.") if($DEBUG < 0);
+
 	my(%exist);
 	foreach my $outfile_arrays_combo (@$outfiles_sets)
 	  {foreach my $outfile_array (@$outfile_arrays_combo)
 	     {foreach my $outfile (@$outfile_array)
-		{checkFile($_,undef,1,0) || $exist{$_}++}}}
+		{checkFile($outfile,undef,1,0) || $exist{$outfile}++}}}
 
 	if(scalar(keys(%exist)))
 	  {
@@ -4302,10 +4308,9 @@ rleach\@genomics.princeton.edu
                 from a single global library sequence file (see -i).  Note that
                 the IDs parsed from both file types must match.
 
-                This script represents the last optional step of an 8 step
-                process in the package called 'cff' (cluster free filtering).
-                Please refer to the README for general information about the
-                package.
+                This script is a part of a package called 'CFF' (cluster free
+                filtering).  Please refer to the README for general information
+                about the package.
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
   (-i)             ungapped, aligned, and same-sized sequences and with a
@@ -5632,14 +5637,20 @@ sub incompatible
 
 sub getUsearchExe
   {
-    my $usearch   = $_[0];
+    my $usearch  = $_[0];
     my $sent_exe = $usearch;
     $sent_exe    =~ s/ .*//;
     my $exe      = '';
 
     if(eval("use File::Which;1;") ||
        eval("use local::lib;use File::Which;1;"))
-      {$exe = which($sent_exe)}
+      {
+	debug("Calling which($sent_exe).");
+
+	$exe = which($sent_exe);
+	if((!defined($exe) || $exe eq '') && -e $sent_exe && -x $sent_exe)
+	  {$exe = $sent_exe}
+      }
     else
       {
 	verbose("File::Which not found, switching to backup method.");
@@ -5654,6 +5665,8 @@ sub getUsearchExe
 	elsif($exe =~ /not found/i)
 	  {$exe = ''}
       }
+
+    debug("Using usearch: [$exe] determined from [$sent_exe].");
 
     return($exe);
   }
