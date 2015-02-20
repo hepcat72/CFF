@@ -1,7 +1,7 @@
 # CFF README
 
-Updated: 6/4/2014
-Copyright 2014
+Updated: 2/20/2015<BR>
+ Copyright 2015
 
 ## DESCRIPTION
 
@@ -18,7 +18,7 @@ This README file provides basic installation/usage information. For a thorough i
 
 ## THE PIPELINE
 
-The pipeline is an 7-step process to find sequences that are as error-free as possible, plus 3 optional steps: an indel filtering step, a conversion step to use the output with qiime, version 1.3.0 (see qiime.org), and a follow-up analysis designed to find pairs of similar sequences that behave differently in a population. It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available.
+The pipeline is primarily a 7-step process whose goal is to find sequences that are as error-free as possible. There are also 3 additional steps at the end to: filter insertions & deletions, convert the output to be compatible with qiime version 1.3.0 (see qiime.org), and a follow-up analysis designed to find pairs of similar sequences that behave differently in a population. It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available:
 
     1.  mergeSeqs.pl        truncates, dereplicates, and renames sequences in samples
     2.  neighbors.pl        generates a list of Hamming distance 1 sequences
@@ -31,23 +31,26 @@ The pipeline is an 7-step process to find sequences that are as error-free as po
     9.  cff2qiime.pl        (optional) convert sequence output to qiime input files
     10. interestingPairs.pl (optional) identify similar sequences that behave differently
 
-Note that when analyzing 454 data, consider running filterIndels.pl in --pre-filter-mode first, but be aware that this could mix sequences with biologically real indels with neighboring sequences. These scripts assume that each "real" sequence (those we seek to identify), whenever present in the sample, start from the same place in its sequence. In particular, CFF will work with any PCR-amplified tag sequencing dataset (such as 16S), but is NOT applicable to shotgun metagenomics where sequences need to be aligned to match each other.
+These scripts assume that, since they were sequenced from specific PCR amplicons, each sequence starts at the same place. In other words, they are by nature, generally aligned. CFF will work with any PCR-amplified tag sequencing dataset (such as 16S), but is NOT applicable to shotgun metagenomics where sequences need to be aligned to match each other.
 
-Briefly, sequences in samples are renamed so that each sequence is assigned the same name whenever it appears (within and across samples). Next, the data is used to estimate substitution error rates. This is done by assuming that for each abundant sequence, most of its Hamming-distance-1 neighbors were in fact generated through PCR/sequencing errors. The estimated error rates are used to calculate, for each sequence, its expected abundance N0 under the substitution-only error model. Sequences whose observed abundance significantly exceeds this predicted null-model abundance are "nominated" as candidate reals. Non-chimeric sequences that received enough "candidate" nominations (across all samples) are retained as real, and a final table is generated listing the abundance of all real sequences as observed across all samples. In this manner even low-abundance sequences are recorded, as long as they could be confidently identified as present above background in a sufficient number of other samples; see [1].
+Note that filterIndels.pl has options specific to 454 sequence data described in both its usage and help output.
+
+Here's briefly, how the pipeline works. First, sequences are renamed so that each sequence has the same name across samples. Next, the most abundant sequences are used to estimate (substitution) error rates. The estimated error rates are then used to calculate each sequence's expected abundance (N0) if it was the result of substitution errors only. Sequences whose observed abundance significantly exceeds this predicted null-model abundance are "nominated" as candidate reals. Candidates that receive enough nominations across samples are retained as real. In this manner even low-abundance sequences are recorded, as long as they could be confidently identified as present above background in a sufficient number of other samples; see [1].
 
 The pipeline is designed to filter for errors that are the result of sequencing or PCR substitutions.  However, an additional pre-/post-filtering step has been provided to identify possible indels. This is an optional post-filtering step when applied to Illumina data, but is suggested as a pre-filtering step when applied to 454 data, where indel errors are commonly generated during sequencing.
 
-When running run_CFF_on_FastQ, be sure to select the correct fastq_ascii offset (either 33 or 64).  This is a parameter to usearch.  A detailed explanation of this parameter can be found on the usearch website at http://drive5.com/usearch/manual/fastq_params.html.
+When running run_CFF_on_FastQ, be sure to select the correct fastq_ascii offset (either 33 or 64). This is a parameter to usearch. A detailed explanation of this parameter can be found on the usearch website at http://drive5.com/usearch/manual/fastq_params.html.
 
-Helpful definitions:
+##### Helpful definitions:
 
-    Candidate:         A sequence that is suspected to not be the result of a PCR
-                       substitution error and may exist in the original biological
-                       sample.
-    Real sequence:     A candidate sequence that was found in an arbitrary minimum
+    Candidate:         A sequence in an individual sample that is suspected to not be the
+                       result of a PCR substitution error and may exist in the original
+                       biological sample.
+    Real:              A candidate sequence that was found in an arbitrary minimum
                        threshold number of samples (and may have been optionally screened
-                       for chimerism).
-    Fake sequence:     A sequence that is presumed to be the result of a PCR substitution
+                       for chimerism), is believed to exist in the original biological
+                       sample, and to not be the result of a PCR substitution error.
+    Fake:              A sequence that is believed to be the result of a PCR substitution
                        error and is believed to not exist in the original biological
                        sample.
     Indel:             A DNA insertion or deletion.
@@ -60,62 +63,65 @@ Helpful definitions:
     N/N0:              A.k.a. the "abundance/N0" fraction.  This is the abundance of a
                        sequence divided by the expected abundance if the sequence is a
                        fake sequence (i.e. the result of a PCR substitution error).
-    Neighbor sequence: A sequence that differs by 1 substitution from a mother sequence.
-                       Also referred to as "1st neighbor" or "hamming distance 1
+    Neighbor:          A sequence that differs by 1 substitution from a mother sequence.
+                       Also referred to as a "1st neighbor" or a "hamming distance 1
                        neighbor".
     Reverse Spillover: An error that reverses a previous error to be correct by chance,
                        or an error that causes a real sequence to turn into a different
                        real sequence.
-    Z Score:           During the estimation of the error rates, a Z Score is calculated
-                       for each neighbor.  It is computed as:
+    Z Score:           During the estimation of PCR substitution error rates, a Z Score is
+                       calculated for each neighbor. We want all the neighbors used to
+                       estimate the error rate to confidently be the result of an actual
+                       error, and the Z score is a means to do this so that our estimation
+                       is accurate. It is computed as:
 
-                       z = (An - Amu) / Astddev
+                           Z = (An - Amu) / Astddev
 
-                       where An is the abundance of a particular neighbor, Amu is the
-                       average neighbor abundance, and Astddev is the standard deviation
-                       of neighbor abundance.  It is then used with a supplied threshold
-                       to filter out potential real sequences from the estimation of the
-                       error background.
-    Dynamical          A Pearson correlation of the abundance time-trace between 2
-    Similarity         sequences, normalized by their maximum possible correlation (cmax,
-                       computed as the correlation of the higher-abundance time trace
-                       with a Poisson-downsampled version of itself)
+                       where "An" is the abundance of a particular neighbor, "Amu" is the
+                       average neighbor abundance, and "Astddev" is the standard deviation
+                       of neighbor abundance.
+                       A histogram of all Z-scores can be useful when selecting a cutoff,
+                       but is a subjective decision, left to be interpreted by the user.
+                       Once a Z-score cutoff is supplied, it is used to skip neighbor
+                       sequences which might be at least partially, the result of a real
+                       sequence.
+    Dynamical          A Pearson correlation of the abundances of 2 sequences across a
+    Similarity         series of samples, normalized by their maximum possible correlation 
+                      (cmax, computed as the correlation of the sequence with the higher
+                       average abundance across samples, to a Poisson-downsampled version
+                       of itself)
 
-Note, each script is designed to handle multiple input files.  No other scripting is required to run the individual scripts.  If you supply 1 of one type of file and 10 of another type of file, the same single file will be used for processing each of the other 10 files.  E.g.:
-
-    nZeros.pl -i "*.fna" -n all_neighbors.nbrs -r my_error_rates.err -o .n0
-
-nZeros.pl will use the same neighbors and error rates files when processing each sequence file.
+Note, each script is designed to handle multiple input files.  No other scripting is required to run the individual scripts.  No shell loops are required.
 
 ## LICENSE
 
-Read LICENSE
+Read [LICENSE](./LICENSE)
 
 ## DOCUMENTATION
 
-Other than this README and the LICENSE, documentation is in the scripts themselves and can be viewed by supplying --help (or --help --extended).  Usage can be viewed by simply running the scripts without any parameters.
+Other than this README and the [LICENSE](./LICENSE), documentation is in the scripts themselves and can be viewed by supplying --help (or --help --extended).  Usage can be viewed by simply running the scripts without any parameters.
 
 ## DOWNLOAD
 
 https://github.com/hepcat72/CFF/archive/master.zip
 
-## INSTALL
+## GETTING STARTED
 
-Download & install the executable dependencies:
+Install dependencies and make sure they are in your path (e.g. run `which muscle`). Follow the instructions on their respective download pages:
 
     muscle - alignment tool required by filterIndels.pl
     http://www.drive5.com/muscle/downloads.htm
 
-    usearch - sequence search tool required by getReals.pl & interestingPairs.pl
+    usearch (v7) - sequence search tool required by getReals.pl & interestingPairs.pl
     http://www.drive5.com/usearch/download.html
 
-Make sure muscle & usearch are in your PATH.  If you're in a hurry and you don't want to run getReals.pl, filterIndels.pl, or interestingPairs.pl, you may install the executables after installing CFF, but you will see an error.
+Note: Be sure to get **usearch version 7.0.1090**. The new version 8 is currently incompatible.
 
-Install the perl module dependencies.  We will use CPAN for this.  You may have to answer a series of questions to set up cpan at first.  Run this command to start CPAN:
+Install perl module dependencies. You may have to answer a series of questions to set up cpan at first, but the default options are usually fine. Run this command to start CPAN:
 
-    env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 /usr/bin/perl -MCPAN -e shell
+    sudo env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 perl -MCPAN -e shell
 
-Once you have a cpan prompt, install each of these dependent modules one by one by issuing these commands:
+Enter your system password, then at the cpan prompt, install these dependent modules using these commands:
 
     install Getopt::Long
     install File::Glob
@@ -127,31 +133,80 @@ Once you have a cpan prompt, install each of these dependent modules one by one 
     install File::Which
     install Math::Random
 
-You may already have some of these modules, but some might be too old, so note the version numbers.  Here is the required version information for each of the modules.
-
-    Getopt::Long               v2.38
-    File::Glob                 v1.17
-    IPC::Open3                 v1.12  Needed for filterIndels.pl
-    IO::Select                 v1.21  Needed for filterIndels.pl & interestingPairs.pl
-    IO::Pipe::Producer         v2.0   Needed for filterIndels.pl & interestingPairs.pl
-    Sys::Info                  v0.78  Needed for filterIndels.pl & interestingPairs.pl
-    Sys::MemInfo               v0.91  Needed for filterIndels.pl
-    File::Which                v1.09  Needed for all scripts use `which` without it
-    Math::Random               v0.71  Needed for interestingPairs.pl
-
 Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
 
-    perl Makefile.PL       --
+    perl Makefile.PL
     make
     sudo make install
 
--- Use the path to the version of perl you want to use (e.g. "/usr/local/bin/perl Makefile.PL") and the perl path at the top of the scripts will be changed to match.  This can be changed at any time by rerunning these commands.
+If you encounter any problems, refer to "INSTALL" below.
 
-To run filterIndels.pl without error (unless running in --pre-filter-mode or --homopolymer-mode), you need to have muscle installed and in your PATH.  If it's not in your path, you can supply the muscle executable with full path to the -y option.  You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.
+## INSTALL
 
-To run getReals.pl with the -f option (implying candidates should be filtered for chimeras) without error, uchime is required (a part of the usearch package).  If it's not in your path, you can supply the usearch executable with full path to the -y option.  You can install CFF without installing usearch.  If you want to run getReals.pl with -f, you can install usearch at a later time.
+Follow the installation procedure under "GETTING STARTED".  If you have any trouble, refer to the notes below. If you are installing on a Qiime 1.3 Virtual Box, see the QIIME subsection below.
 
-To run interestingPairs.pl without error, usearch is required.  If it's not in your path, you can supply the usearch executable with full path to the -y option.  You can install CFF without installing usearch.  If you want to run interestingPairs.pl, you can install usearch at a later time.
+##### USEARCH
+The newest version of usearch (version 8.x, release in 2015) is different enough to make it incompatible with the current version of CFF. If you already have version 8 installed, please refer to the [version 7 notes](http://www.drive5.com/usearch/manual/quick_usearch7.html), particularly, the section on [installing multiple versions](http://www.drive5.com/usearch/manual/multiple_versions.html).
+
+To keep usearch version 8 primary in your path and only use version 7 with CFF, run these two commands in a terminal window and edit your run_CFF_on_FastQ.tcsh script (replacing the usearch path with the location of your usearch version 7 executable):
+
+    getReals.pl --save-as-default -y /path/to/usearch_version_7
+    interestingPairs.pl --save-as-default -y /path/to/usearch_version_7
+
+The replace this line in `run_CFF_on_FastQ.tcsh` (run `which run_CFF_on_FastQ.tcsh` to find where it is installed):
+
+    setenv USEARCH   usearch
+
+with:
+
+    setenv USEARCH   /path/to/usearch_version_7
+
+This will implicitly add the usearch 7 path to every call of these scripts. The current default user-set options can be viewed at the bottom of each script's usage output (i.e. run each script without any options to see your user defaults).
+
+##### PERL
+The perl path at the top of each script will be changed to match the version of perl that was used when running Makefile.PL. This can be changed at any time by rerunning these commands. The perl path used when running the cpan command is also important
+
+##### PERL MODULES
+In some cases, a module install may fail with an error. Some of these cases can be overcome by simply forcing the module to install. At the cpan prompt:
+
+    force install File::Glob
+
+Sometimes, this may initiate an install of some standard perl modules. If this happens, selecting all default options is usually good enough - just keep hitting return. If this doesn't work, you may need to find the module under `~/.cpan/build` and follow the installation instructions found there.
+
+You may already have some of the dependent perl modules, but some might be too old, so note the version numbers. Here is the required version information for each of the modules.
+
+    Getopt::Long          v2.38   REQUIRED for all scripts
+    File::Glob            v1.17   REQUIRED for all scripts
+    IPC::Open3            v1.12   REQUIRED for filterIndels.pl only
+    IO::Select            v1.21   REQUIRED for filterIndels.pl & interestingPairs.pl only
+    IO::Pipe::Producer    v2.0    REQUIRED for filterIndels.pl & interestingPairs.pl only
+    Sys::Info             v0.78   REQUIRED for filterIndels.pl & interestingPairs.pl only
+    Sys::MemInfo          v0.91   REQUIRED for filterIndels.pl only
+    Math::Random          v0.71   REQUIRED for interestingPairs.pl only
+    File::Which           v1.09   OPTIONAL All scripts will use `which` without it
+
+##### QIIME 1.3 VIRTUAL BOX INSTALL NOTES
+
+If you are installing CFF on the Qiime Virtual Box (version 1.3), note that the Virtual Box that comes with the installation does not have the tcsh shell used for the pipeline scripts (run_CFF_on_FastA.tcsh and run_CFF_on_FastQ.tcsh). If you were to run one of these scripts, you would see an error like this:
+
+    bash: run_CFF_on_FastQ.tcsh: /bin/tcsh: bad interpreter: No such file or directory
+
+Installing tcsh is very simple. Open a terminal and run this command:
+
+    sudo apt-get install tcsh
+
+The Qiime Virtual Box comes with muscle version 3.6 pre-installed, but not usearch. When downloading, be sure to get the version compiled for your system, paying particular attention to 32 versus 64 bit processors.
+
+The preferred perl path in the Qiime Virtual Box is `/usr/local/bin/perl`. It has a bunch of the perl module dependencies already installed. `/usr/bin/perl` exists, but is a lesser perl version and results in warnings and difficulty installing File::Glob. Be sure to use `/usr/local/bin/perl` when running cpan and Makefile.PL.
+
+###### filterIndels.pl
+You can install CFF without installing muscle.  If you want to run filterIndels.pl, you can install muscle at a later time.  Muscle is not required if running in --pre-filter-mode or --homopolymer-mode. Otherwise you need to have muscle installed and in your PATH (or you can supply the muscle executable with full path using the -y option).
+
+###### getReals.pl
+You can install CFF without installing usearch.  If you want to run getReals.pl with -f, you can install usearch at a later time.  To run with the -f option (implying candidates should be filtered for chimeras) without error, uchime is required (a part of the usearch package).  If it's not in your path, you can supply the usearch executable with full path using the -y option.
+
+###### interestingPairs.pl
+You can install CFF without installing usearch.  If you want to run interestingPairs.pl, you can install usearch at a later time.  To run without error, usearch is required. If it's not in your path, you can supply the usearch executable with full path using the -y option.
 
 ## UPDATE
 
@@ -159,11 +214,11 @@ To update your copy of this package, simply download the latest version (see DOW
 
 Note that each perl script in the package has its own version number.  If you include --header as an option when running commands, output files will have a header with run information, including the version of the script that was used to generate the output.  Rest assured that all the elements of the pipeline will skip the headers when processing the files.
 
-## EXAMPLE
+## EXAMPLES
 
 In [1], we discuss the application of CFF to analyze a time series of 16S samples from a longitudinal study performed by Caporaso et al. [2]. As test data, we provide a subset of samples from that study. The same 10 samples are provided in FastA and FastQ format to illustrate the two uses of the CFF pipeline (using raw FastQ and already quality-filtered FastA data). For a detailed description of the test data, see samples/testDataDescription.txt.
 
-### Example 1
+##### Example 1
 
 Run these commands:
 
@@ -184,7 +239,7 @@ Example 1 is roughly equivalent to running the following commands (the differenc
 
 Note that in the first command (mergeSeqs.pl), we turn off abundance value parsing from the fasta deflines by supplying -p ''.  While the command will work without -p '', it will generate an error because the default value expects to see abundance patterns on deflines in the form "size=#;".  If you never intend to save abundance values on your deflines, you may supply --save-as-default -p '' to save the setting.
 
-### Example 2
+##### Example 2
 
 Run these commands:
 
@@ -193,7 +248,7 @@ Run these commands:
 
 Example 2 runs CFF on FastQ test data. This executes pretty much the same commands, only it starts by performing minimal quality filtering using USEARCH (see [1]).
 
-### Example 3
+##### Example 3
 
 Run these commands:
 
@@ -222,20 +277,42 @@ tikhonov@fas.harvard.edu
 
 ## AUTHORS
 
-Robert W. Leach
-Bioinformatics Group
-Lewis-Sigler Institute for Integrative Genomics
-Princeton University
+Robert W. Leach<BR>
+Bioinformatics Group<BR>
+Lewis-Sigler Institute for Integrative Genomics<BR>
+Princeton University<BR>
 Princeton, NJ
 
-Mikhail Tikhonov
-School of Engineering and Applied Sciences
-Harvard University
+Mikhail Tikhonov<BR>
+School of Engineering and Applied Sciences<BR>
+Harvard University<BR>
 Boston, MA
 
 ## TROUBLESHOOTING
 
-Using --verbose can sometimes help identify a problem.  Each script also comes with a debug mode.  Supply the --debug flag to help figure out issues.  Debug flags can be submitted multiple times, or with an integer parameter to increase the amount of debug output.  This will add line numbers to errors and warnings as well as print ongoing status messages and in some cases, calculation formulas.
+Using --verbose can sometimes help identify a problem.  Each script also comes with a --debug mode that can help to figure out issues.  Debug flags can be submitted multiple times, or with an integer parameter to increase the amount of debug output.  This will add line numbers to errors and warnings as well as print ongoing status messages and in some cases, calculation formulas.
+
+Questions relating to specific options or general questions can frequently be addressed by running the individual perl scripts without options or with the --help flag.
+
+###### Missing sequence warnings
+Generally, warnings will not interrupt execution, but may indicate unintended behavior, such as if you run the wrong files together or in the wrong respective order (which is most likely to cause a problem in the getReals.pl script where the files supplied with the -i flag and the -n flag are expected to be in the same respective order, e.g. this improper file ordering will cause errors about missing sequence IDs: `-i "1.lib.n0s.cands 2.lib.n0s.cands ... 10.lib.n0s.cands" -n "10.lib.n0s 1.lib.n0s 2.lib.n0s ..."`).
+
+###### Argument list too long
+Running the run_CFF* scripts on lots of files can sometimes bring about the "Argument list too long" error. This issue has been mitigated compared to previous versions of CFF. If you are running a run_CFF* script prior to version 1.3 or if your run_CFF* script does not have a version number at the top, see the UPDATE section above toi get the latest version to potentially get around this issue.
+
+If you are still encountering this error, there are a number of ways to get around it. The best way is to supply your file arguments to the script using a quoted glob pattern E.g.:
+
+    tcsh run_CFF_on_FastQ.tcsh 130 33 myanalysis "*.fq"
+
+Note the __"*.fq"__, _with quotes_. While file lists without quotes, or supplied via mechanisms such as:
+
+    tcsh run_CFF_on_FastQ.tcsh 130 33 myanalysis `cat my_file_list.txt`
+
+are possible, there is a system-imposed character limit on the total combined length of the file names. The limit is affected by the size of the data stored in your environment and in any shell variables. The run_CFF* scripts try to catch potential situations where this error is likely to be encountered (during the execution of the getReals.pl script), but this check may be unreliable or mis-calculated for some systems. If it causes problems, refer to the notes in the run_CFF* scripts above the section containing the "CHECKMAX" variable.
+
+Other ways to get around this error include: shortening your input file names, checking for and clearing out any large amounts of data stored in your environment, or running CFF on a system with a larger command-line length limit (run `getconf ARG_MAX` to find your system's upper limit).
+
+See the INSTALL section for more notes on potential pitfalls.
 
 ## KNOWN ISSUES
 
