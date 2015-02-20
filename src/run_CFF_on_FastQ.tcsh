@@ -17,6 +17,7 @@ setenv LASTTIME  `perl -e 'print(scalar(time()))'`
 #Make space in the script environment for eventual long command lines
 unset argv
 
+setenv USEARCH   usearch
 setenv Z         2
 setenv K         2
 setenv MAG       10
@@ -89,24 +90,24 @@ set NAME=`perl -e 'print(join(",",map {s%.*/%%;$_} @ARGV))' $f`
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "usearch -fastq_filter     $f -fastq_trunclen $TRIMLEN -fastq_maxee 1 -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet"
-usearch -fastq_filter $f -fastq_trunclen $TRIMLEN -fastq_maxee 1 -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet >& /dev/null
+echo -n "$USEARCH -fastq_filter     $f -fastq_trunclen $TRIMLEN -fastq_maxee 1 -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet"
+$USEARCH -fastq_filter $f -fastq_trunclen $TRIMLEN -fastq_maxee 1 -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet >& /dev/null
 if ( $status ) then
  echo
  echo
- echo "ERROR: Command 'usearch -fastq_filter' failed"
+ echo "ERROR: Command '$USEARCH -fastq_filter' failed"
  goto scriptend
 endif
 perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTIME
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "usearch -derep_fulllength $ANALDIR/0_1_qc/$NAME.qc.fna -output $ANALDIR/0_2_drp/$NAME.drp.fna -sizeout -quiet"
-usearch -derep_fulllength $ANALDIR/0_1_qc/$NAME.qc.fna -output $ANALDIR/0_2_drp/$NAME.drp.fna -sizeout -quiet >& /dev/null
+echo -n "$USEARCH -derep_fulllength $ANALDIR/0_1_qc/$NAME.qc.fna -output $ANALDIR/0_2_drp/$NAME.drp.fna -sizeout -quiet"
+$USEARCH -derep_fulllength $ANALDIR/0_1_qc/$NAME.qc.fna -output $ANALDIR/0_2_drp/$NAME.drp.fna -sizeout -quiet >& /dev/null
 if ( $status ) then
  echo
  echo
- echo "ERROR: Command 'usearch -derep_fulllength' failed"
+ echo "ERROR: Command '$USEARCH -derep_fulllength' failed"
  goto scriptend
 endif
 perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTIME
