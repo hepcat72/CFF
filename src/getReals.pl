@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.10';
+my $software_version_number = '1.11';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -107,8 +107,7 @@ my $GetOptHash =
                                                             #    \@]\s*([^;]+)]
    'p|abundance-pattern=s'   => \$abundance_pattern,        #OPTIONAL
                                                             #     [size=(\d+);]
-   'y|uchime-exe=s'          => \$uchime,                   #OPTIONAL [usearch
-                                                            #   -uchime_denovo]
+   'y|uchime-exe=s'          => \$uchime,                   #OPTIONAL [usearch]
    'outdir=s'                => sub {push(@$outdirs,        #OPTIONAL [none]
 					  [sglob($_[1])])},
    'tmpdir=s'                => \$tmpdir,                   #OPTIONAL [(env)]
@@ -4426,17 +4425,17 @@ end_print
 sub incompatible
   {
     my $uchime = $_[0];
-    my $exe = $uchime;
-    $exe =~ s/ .*//;
+    my $exe    = $uchime;
+    $exe       =~ s/ .*//;
 
     if(!defined($uchime) || $uchime eq '' || !-e $exe || !-x $exe)
       {
-	error("The uchime executable [$exe] appears to either not be in ",
-	      "your path, not exist, not have execute permissions, or you ",
-	      "have not created a symbolic link named 'usearch' to the full ",
-	      "name of the executable with version number.  If you have not ",
-	      "installed uchime, you can find it here: http://drive5.com/",
-	      "uchime/uchime_download.html");
+	error("The uchime executable ",(defined($exe) ? "[$exe] " : ''),
+	      "appears to either not be in your path, not exist, not have ",
+	      "execute permissions, or you have not created a symbolic link ",
+	      "named 'usearch' to the full name of the executable with ",
+	      "version number.  If you have not installed uchime, you can ",
+	      "find it here: http://drive5.com/uchime/uchime_download.html");
 	return(1);
       }
 
@@ -4481,7 +4480,11 @@ sub getUchimeExe
 
     if(eval("use File::Which;1;") ||
        eval("use local::lib;use File::Which;1;"))
-      {$exe = which($sent_exe)}
+      {
+	$exe = which($sent_exe);
+	if((!defined($exe) || $exe eq '') && -e $sent_exe && -x $sent_exe)
+	  {$exe = $sent_exe}
+      }
     else
       {
 	verbose("File::Which not found, switching to backup method.");
@@ -4496,6 +4499,8 @@ sub getUchimeExe
 	elsif($exe =~ /not found/i)
 	  {$exe = ''}
       }
+
+    debug("Using usearch: [$exe] determined from [$sent_exe].");
 
     return($exe);
   }
