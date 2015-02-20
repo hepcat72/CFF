@@ -12,7 +12,7 @@ if(incompatibleMuscle(getExe('muscle')))
   {print STDERR ("WARNING: Muscle appears to be missing or potentially incompatible.  ",
                  "Installation will proceed, but in order to run filterIndels.pl without ",
                  "errors, you must install a compatible version of muscle and put it in ",
-                 "your path.  Everything else will work fine.")}
+                 "your path.  Everything else will work fine.\n")}
 
 if(incompatibleUsearch(getExe('usearch')))
   {print STDERR ("WARNING: usearch appears to be missing or potentially incompatible.  ",
@@ -20,7 +20,7 @@ if(incompatibleUsearch(getExe('usearch')))
                  "to filter chimeric sequences or interestingPairs.pl to find dynamically ",
                  "similar abundance traces without errors, you must install a compatible ",
                  "version of usearch and put it in your path.  Everything else will work ",
-                 "fine.")}
+                 "fine.\n")}
 
 
 
@@ -89,7 +89,7 @@ sub incompatibleMuscle
 		last;
 	      }
 	  }
-	print STDERR ("WARNING: This script was tested muscle with Muscle version 3.8.31.  ",
+	print STDERR ("WARNING: This script was tested with Muscle version 3.8.31.  ",
 		      "Your version appears to be [$vnum], thus it may not work ",
 		      "properly.\n") unless($ok);
       }
@@ -113,7 +113,7 @@ sub incompatibleUsearch
 	              "have not created a symbolic link named 'usearch' to the full ",
 	              "name of the executable with version number.  If you have not ",
 	              "installed usearch, you can find it here: http://www.drive5.com/",
-                      "usearch/download.html");
+                      "usearch/download.html\n");
 	return(1);
       }
 
@@ -139,12 +139,12 @@ sub incompatibleUsearch
 	  }
 	print STDERR ("WARNING: This script was tested with usearch version ",
 		      "7.0.1090_i86osx32.  Your version appears to be [$vnum], ",
-		      "thus it may not work properly.") unless($ok);
+		      "thus it may not work properly.\n") unless($ok);
       }
     else
       {print STDERR ("WARNING: This script was tested with usearch version ",
 	             "7.0.1090_i86osx32.  It may not work properly with the ",
-	             "version you are using.")}
+	             "version you are using.\n")}
 
     return(0);
   }
@@ -161,13 +161,13 @@ sub getExe
       {$exe = which($sent_exe)}
     else
       {
-	print STDERR ("File::Which not found, switching to backup method.");
+	print STDERR ("File::Which not found, switching to backup method.\n");
 	$exe = `which $sent_exe`;
 	chomp($exe);
 	if($exe =~ /which: Command not found./ || $exe !~ /\S/)
 	  {
 	    print STDERR ("ERROR: System command 'which' does not appear to exist.  Please ",
-		          "install the perl module File::Which.");
+		          "install the perl module File::Which.\n");
 	    $exe = '';
 	  }
 	elsif($exe =~ /not found/i)
