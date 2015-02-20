@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.6';                   #Global
+my $software_version_number = '1.7';                   #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -3240,7 +3240,7 @@ sub makeCheckOutputs
 	foreach my $outfile_arrays_combo (@$outfiles_sets)
 	  {foreach my $outfile_array (@$outfile_arrays_combo)
 	     {foreach my $outfile (@$outfile_array)
-		{checkFile($_,undef,1,0) || $exist{$_}++}}}
+		{checkFile($outfile,undef,1,0) || $exist{$outfile}++}}}
 
 	if(scalar(keys(%exist)))
 	  {
