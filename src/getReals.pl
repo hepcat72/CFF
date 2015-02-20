@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.11';
+my $software_version_number = '1.12';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -3994,6 +3994,10 @@ rleach\@genomics.princeton.edu
 
                 For more information on uchime, see the uchime documentation:
                 http://drive5.com/uchime/uchime_download.html
+
+                This script is a part of a package called 'CFF' (cluster free
+                filtering).  Please refer to the README for general information
+                about the package.
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
   -i,-n,-f         ungapped, aligned, and same-sized sequences and with a
