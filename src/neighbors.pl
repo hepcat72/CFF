@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.17';
+my $software_version_number = '1.18';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -2503,9 +2503,9 @@ end_print
                 sequence, it finds all other sequences which differ from it by
                 1 substitution.  Only works for mismatches, not indels.
 
-                This script represents the second step of a 7 step process in
-                the package called 'cff' (cluster free filtering).  Please
-                refer to the README for general information about the package.
+                This script is a part of a package called 'CFF' (cluster free
+                filtering).  Please refer to the README for general information
+                about the package.
 
 * SEQUENCE FORMAT: Fasta or fastq format file containing a set of unique,
                    ungapped, aligned, and same-sized sequences and with a
