@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '3.8';
+my $software_version_number = '3.9';
 my $created_on_date         = '4/2/2014';
 
 ##
@@ -2628,14 +2628,15 @@ rleach\@genomics.princeton.edu
                 Ion Torrent will be filtered (all other homopolymer and non-
                 homopolymer indels are retained).
 
-                This script is intended to be used as the very last step in the
-                'cff' (cluster free filtering) pipeline.  However, it can also
-                be run before mergeSeqs.pl, especially if homopolymer indels
-                are a concern.  If you supply the --pre-filter-mode flag, the
-                script will set --sum-abundances to true, --homopolymer-mode to
-                true, and if --homopolymer-mode is explicitly set to false, it
-                will set --align-mode to global.  --homopolymer-mode is
-                extremely fast compared to all other modes.
+                This script is intended to be used as the step after
+                getReals.pl in the 'CFF' (cluster free filtering) pipeline.
+                However, it can also be run before mergeSeqs.pl, especially if
+                homopolymer indels are a concern.  If you supply the
+                --pre-filter-mode flag, the script will set --sum-abundances to
+                true, --homopolymer-mode to true, and if --homopolymer-mode is
+                explicitly set to false, it will set --align-mode to global.
+                --homopolymer-mode is extremely fast compared to all other
+                modes.
 
                 This script, when --homopolymer-mode is not supplied, uses a
                 sequence alignment tool called muscle to determine the
