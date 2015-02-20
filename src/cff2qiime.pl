@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.7';                   #Global
+my $software_version_number = '1.8';                   #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -3958,6 +3958,10 @@ rleach\@genomics.princeton.edu
                 taxonomic information.  An accompanying wrapper script to run
                 all output scripts with a single command is also generated
                 (--run-all-script).
+
+                This script is a part of a package called 'CFF' (cluster free
+                filtering).  Please refer to the README for general information
+                about the package.
 
 * INPUT FORMAT: Fasta or fastq files containing abundance values in the
                 deflines.  It is recommended to use this with either the
