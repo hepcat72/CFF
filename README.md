@@ -1,7 +1,7 @@
 # CFF README
 
 Updated: 2/20/2015<BR>
- Copyright 2015
+Copyright 2015
 
 ## DESCRIPTION
 
@@ -14,6 +14,56 @@ The final sequence output of this pipeline can be converted to a format which ca
 The benefit of this approach is the ability to find very similar sequences which behave differently in terms of abundance in a series of samples (e.g. a time-series).  Toward that end, CFF provides a means by which to identify pairs of sequences that have high sequence identity and dynamically dissimilar abundances.
 
 This README file provides basic installation/usage information. For a thorough introduction to the cluster-free filtering approach, including the motivation, algorithm, limitations, and examples of application, see [1]. For detailed usage information of individual scripts, see built-in documentation.
+
+
+## GETTING STARTED
+
+This section walks you through what you need to do to go from scratch to first results.
+
+First, download CFF and extract the zip file by double-clicking it:
+
+[https://github.com/hepcat72/CFF/archive/master.zip](https://github.com/hepcat72/CFF/archive/master.zip)
+
+Install dependencies and make sure they are in your path (e.g. run `which muscle`). Follow the instructions on their respective download pages:
+
+**muscle - alignment tool required by filterIndels.pl**<BR>
+[http://www.drive5.com/muscle/downloads.htm](http://www.drive5.com/muscle/downloads.htm)
+
+**usearch (v7) - sequence search tool required by getReals.pl & interestingPairs.pl**<BR>
+[http://www.drive5.com/usearch/download.html](http://www.drive5.com/usearch/download.html)
+
+Note: Be sure to get **usearch version 7.0.1090**. The new version 8 is currently incompatible.
+
+Install perl module dependencies. You may have to answer a series of questions to set up cpan at first, but the default options are usually fine. Run this command to start CPAN:
+
+    sudo env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 perl -MCPAN -e shell
+
+Enter your system password, then at the cpan prompt, install these dependent modules using these commands:
+
+    install Getopt::Long
+    install File::Glob
+    install IPC::Open3
+    install IO::Select
+    install IO::Pipe::Producer
+    install Sys::Info
+    install Sys::MemInfo
+    install File::Which
+    install Math::Random
+
+Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
+
+    perl Makefile.PL
+    make
+    sudo make install
+
+Run example 3 to ensure the installation runs without error:
+
+    cd samples
+    tcsh run_example3.tcsh
+
+Example 3 demonstrates the value of the interestingPairs.pl script.  The samples are taken from a male and a female subject (see [1]), at 3 time points separated by 3 months, with a 7th "unknown" sample taken 2 months afterward.  The analysis shows that the dominant strain in the female samples and the dominant strain in the male samples (sequences lib_1 and lib_2) differ by only one nucleotide. Their strongly negative dynamical similarity is indicative of strongly anti-correlated distribution across samples.  And indeed, one of these sequences is dominant in the male subject but absent in the female, and vice versa for the other sequence, as you can see in the abundance table summary file (located in Caporaso_GutSamples_out/4_reals_table/), where one should find the rows corresponding to lib_1 and lib_2 and observe that sequence lib_1 is strongly present in samples (M3_Apr09, M3_Jan09, and M3_Oct08), and sequence lib_2 in (F4_Apr09, F4_Jan09, and F4_Oct08).  The seventh "unknown" sample (column 1_335 in the abundance table summary file) is confidently identified as coming from the male subject, because it has the male-subject-specific strain.  And indeed, this sample was taken from the male subject. This illustrates the utility of our method, stressing, in particular, that you don't even necessarily need a lot of samples to see meaningful features at the sub-OTU level.  Any other cluster-based method would have equated the two sequences differing by a single base.
+
+If you encounter any problems during the example run, refer to "INSTALL" below.
 
 
 ## THE PIPELINE
@@ -39,7 +89,7 @@ Here's briefly, how the pipeline works. First, sequences are renamed so that eac
 
 The pipeline is designed to filter for errors that are the result of sequencing or PCR substitutions.  However, an additional pre-/post-filtering step has been provided to identify possible indels. This is an optional post-filtering step when applied to Illumina data, but is suggested as a pre-filtering step when applied to 454 data, where indel errors are commonly generated during sequencing.
 
-When running run_CFF_on_FastQ, be sure to select the correct fastq_ascii offset (either 33 or 64). This is a parameter to usearch. A detailed explanation of this parameter can be found on the usearch website at http://drive5.com/usearch/manual/fastq_params.html.
+When running run_CFF_on_FastQ, be sure to select the correct fastq_ascii offset (either 33 or 64). This is a parameter to usearch. A detailed explanation of this parameter can be found on the usearch website at [http://drive5.com/usearch/manual/fastq_params.html](http://drive5.com/usearch/manual/fastq_params.html).
 
 ##### Helpful definitions:
 
@@ -93,57 +143,20 @@ When running run_CFF_on_FastQ, be sure to select the correct fastq_ascii offset 
 
 Note, each script is designed to handle multiple input files.  No other scripting is required to run the individual scripts.  No shell loops are required.
 
+
 ## LICENSE
 
 Read [LICENSE](./LICENSE)
+
 
 ## DOCUMENTATION
 
 Other than this README and the [LICENSE](./LICENSE), documentation is in the scripts themselves and can be viewed by supplying --help (or --help --extended).  Usage can be viewed by simply running the scripts without any parameters.
 
-## DOWNLOAD
-
-https://github.com/hepcat72/CFF/archive/master.zip
-
-## GETTING STARTED
-
-Install dependencies and make sure they are in your path (e.g. run `which muscle`). Follow the instructions on their respective download pages:
-
-    muscle - alignment tool required by filterIndels.pl
-    http://www.drive5.com/muscle/downloads.htm
-
-    usearch (v7) - sequence search tool required by getReals.pl & interestingPairs.pl
-    http://www.drive5.com/usearch/download.html
-
-Note: Be sure to get **usearch version 7.0.1090**. The new version 8 is currently incompatible.
-
-Install perl module dependencies. You may have to answer a series of questions to set up cpan at first, but the default options are usually fine. Run this command to start CPAN:
-
-    sudo env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 perl -MCPAN -e shell
-
-Enter your system password, then at the cpan prompt, install these dependent modules using these commands:
-
-    install Getopt::Long
-    install File::Glob
-    install IPC::Open3
-    install IO::Select
-    install IO::Pipe::Producer
-    install Sys::Info
-    install Sys::MemInfo
-    install File::Which
-    install Math::Random
-
-Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
-
-    perl Makefile.PL
-    make
-    sudo make install
-
-If you encounter any problems, refer to "INSTALL" below.
 
 ## INSTALL
 
-Follow the installation procedure under "GETTING STARTED".  If you have any trouble, refer to the notes below. If you are installing on a Qiime 1.3 Virtual Box, see the QIIME subsection below.
+Follow the installation procedure under "**GETTING STARTED**".  If you have any trouble, refer to the notes below. If you are installing on a Qiime 1.3 Virtual Box, see the QIIME subsection below.
 
 ##### USEARCH
 The newest version of usearch (version 8.x, release in 2015) is different enough to make it incompatible with the current version of CFF. If you already have version 8 installed, please refer to the [version 7 notes](http://www.drive5.com/usearch/manual/quick_usearch7.html), particularly, the section on [installing multiple versions](http://www.drive5.com/usearch/manual/multiple_versions.html).
@@ -208,11 +221,13 @@ You can install CFF without installing usearch.  If you want to run getReals.pl 
 ###### interestingPairs.pl
 You can install CFF without installing usearch.  If you want to run interestingPairs.pl, you can install usearch at a later time.  To run without error, usearch is required. If it's not in your path, you can supply the usearch executable with full path using the -y option.
 
+
 ## UPDATE
 
-To update your copy of this package, simply download the latest version (see DOWNLOAD above) and follow the installation procedure.  You can skip installing the dependencies such as usearch, muscle, and the required perl modules, however note any discrepancies when you run `perl Makefile.PL` and install anything that is missing or below the required version number.
+To update your copy of this package, simply re-perform the installation procedure in the "**GETTING STARTED**" section above.  You can skip installing the dependencies such as usearch, muscle, and the required perl modules, however note any discrepancies when you run `perl Makefile.PL` and install anything that is missing or below the required version number.
 
-Note that each perl script in the package has its own version number.  If you include --header as an option when running commands, output files will have a header with run information, including the version of the script that was used to generate the output.  Rest assured that all the elements of the pipeline will skip the headers when processing the files.
+Note that each perl script in the package has its own version number.  If you include --header as an option when running commands, output files will have a header with run information, including the version of the script that was used to generate the output.  Rest assured that all the elements of the pipeline will skip the headers when processing the files (except for the output of cff2qiime.pl, as qiime does not recognize the headers).
+
 
 ## EXAMPLES
 
@@ -255,7 +270,7 @@ Run these commands:
     cd samples
     tcsh run_example3.tcsh
 
-Example 3 runs CFF on the gut samples test data. It runs the same analysis as example 2, but serves to demonstrate the value of the interestingPairs.pl script.  The samples are taken from a male and a female subject (see [1]), at 3 time points separated by 3 months, with a 7th "unknown" sample taken 2 months afterward.  The analysis shows that the dominant strain in the female samples and the dominant strain in the male samples differs by only one nucleotide for the two subjects. The pair of sequences are output by the interestingPairs.pl script.  The seventh "unknown" sample is confidently identified as coming from the male subject, because it has the male-subject-specific strain.  And indeed, this sample was taken from the male subject. This illustrates the utility of our method, stressing, in particular, that you don't even necessarily need a lot of samples to see meaningful features at the sub-OTU level.  Any other cluster-based method would have equated the two sequences differing by a single base.
+Example 3 runs CFF on the gut samples test data. It runs the same analysis as example 2, but serves to demonstrate the value of the interestingPairs.pl script.  Please refer to the interpretation of the results at the end of the GETTING STARTED section above.
 
 
 ## REFERENCES
@@ -269,11 +284,12 @@ Example 3 runs CFF on the gut samples test data. It runs the same analysis as ex
 
 For technical support (bugs, feature requests, error messages, script functionality, portability...):
 
-https://github.com/hepcat72/CFF/issues
+[https://github.com/hepcat72/CFF/issues](https://github.com/hepcat72/CFF/issues)
 
 For science-related questions (usefulness of CFF for your application, limitations of error model, other sequencing platforms...):
 
 tikhonov@fas.harvard.edu
+
 
 ## AUTHORS
 
@@ -288,11 +304,23 @@ School of Engineering and Applied Sciences<BR>
 Harvard University<BR>
 Boston, MA
 
+
 ## TROUBLESHOOTING
 
 Using --verbose can sometimes help identify a problem.  Each script also comes with a --debug mode that can help to figure out issues.  Debug flags can be submitted multiple times, or with an integer parameter to increase the amount of debug output.  This will add line numbers to errors and warnings as well as print ongoing status messages and in some cases, calculation formulas.
 
 Questions relating to specific options or general questions can frequently be addressed by running the individual perl scripts without options or with the --help flag.
+
+Users are encouraged to submit bug reports at [https://github.com/hepcat72/CFF/issues](https://github.com/hepcat72/CFF/issues).  Please include copied & pasted errors, a description of the expected behavior, a description of how to reproduce the error, and the output of these commands:
+
+    uname -a
+    echo $SHELL
+    muscle --version
+    usearch --version
+
+For errors from specific scripts (e.g. getReals.pl), please also include the output of the specific script's --version flag, e.g.:
+
+    getReals.pl --version
 
 ###### Missing sequence warnings
 Generally, warnings will not interrupt execution, but may indicate unintended behavior, such as if you run the wrong files together or in the wrong respective order (which is most likely to cause a problem in the getReals.pl script where the files supplied with the -i flag and the -n flag are expected to be in the same respective order, e.g. this improper file ordering will cause errors about missing sequence IDs: `-i "1.lib.n0s.cands 2.lib.n0s.cands ... 10.lib.n0s.cands" -n "10.lib.n0s 1.lib.n0s 2.lib.n0s ..."`).
@@ -314,9 +342,6 @@ Other ways to get around this error include: shortening your input file names, c
 
 See the INSTALL section for more notes on potential pitfalls.
 
-## KNOWN ISSUES
-
-none
 
 ## CHANGELOG
 
