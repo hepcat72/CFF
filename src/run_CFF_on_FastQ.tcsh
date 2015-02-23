@@ -1,6 +1,6 @@
 #!/bin/tcsh
 
-#VERSION: 1.3
+#VERSION: 1.4
 
 #USAGE: tcsh run_CFF_on_FastQ.tcsh trimlen ascii_offset* outdir "fastq-files-pattern"
 # E.G.: tcsh run_CFF_on_FastQ.tcsh 130 64 myanalysis "some-dir/*.fq"
@@ -86,6 +86,14 @@ mkdir $ANALDIR/0_2_drp
 
 foreach f ( $FASTQS )
 
+#usearch hits an error if you gice it an empty file, so let's skip empties
+if ( -z $f || ((-e $f) == 0) ) then
+ echo
+ echo "Skipping empty file $f"
+ echo
+ goto loopend
+endif
+
 set NAME=`perl -e 'print(join(",",map {s%.*/%%;$_} @ARGV))' $f`
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
@@ -114,6 +122,7 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
+loopend:
 end
 
 
