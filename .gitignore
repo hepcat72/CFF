@@ -13,3 +13,5 @@ samples/Caporaso_FASTA_out
 run_all_qiime_tax_commands.sh
 samples/Caporaso_GutSamples_out
 src/cff2qiime-fixthislater.pl
+Caporaso_GutSamples_check*
+samples/Caporaso_GutSamples_out-bak
