@@ -251,7 +251,7 @@ echo "OUTFILES:"
 echo "  $ANALDIR/*"
 echo "  run_all_qiime_tax_commands.sh"
 echo
-echo "Run ./run_all_qiime_tax_commands.sh to generate a biom file with taxonomic information (if you have qiime installed)."
+echo "If you have Qiime installed, edit the script './run_all_qiime_tax_commands.sh' based on your preferred qiime parameters and then run it to generate a biom file with taxonomic information."
 
 scriptend:
 
