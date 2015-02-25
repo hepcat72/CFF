@@ -133,8 +133,8 @@ unsetenv FASTQS
 echo
 
 
-echo -n "mergeSeqs.pl        '$ANALDIR/0_2_drp/$SHOWSTUBS.drp.fna' -f $LIB --outdir '$ANALDIR/1_lib' -o .lib -t fasta"
-mergeSeqs.pl "$ANALDIR/0_2_drp/$STUBS.drp.fna" -f $LIB --outdir "$ANALDIR/1_lib" -o .lib -t fasta --overwrite
+echo -n "mergeSeqs.pl        '$ANALDIR/0_2_drp/$SHOWSTUBS.drp.fna' -f '$LIB' --outdir '$ANALDIR/1_lib' -o .lib -t fasta"
+mergeSeqs.pl "$ANALDIR/0_2_drp/$STUBS.drp.fna" -f "$LIB" --outdir "$ANALDIR/1_lib" -o .lib -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -197,8 +197,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "getReals.pl         '$ANALDIR/3_cands/$SHOWSTUBS.drp.fna.lib.n0s.cands' -n '$ANALDIR/2_n0s/$SHOWSTUBS.drp.fna.lib.n0s' -f '$ANALDIR/1_lib/$LIB' -k $K --outdir '$ANALDIR/4_reals_table'"
-getReals.pl "$ANALDIR/3_cands/$STUBS.drp.fna.lib.n0s.cands" -n "$ANALDIR/2_n0s/$STUBS.drp.fna.lib.n0s" -f "$ANALDIR/1_lib/$LIB" -k $K --outdir "$ANALDIR/4_reals_table" --overwrite
+echo -n "getReals.pl      -i '$ANALDIR/3_cands/$SHOWSTUBS.drp.fna.lib.n0s.cands' -n '$ANALDIR/2_n0s/$SHOWSTUBS.drp.fna.lib.n0s' -f '$ANALDIR/1_lib/$LIB' -k $K --outdir '$ANALDIR/4_reals_table'"
+getReals.pl -i "$ANALDIR/3_cands/$STUBS.drp.fna.lib.n0s.cands" -n "$ANALDIR/2_n0s/$STUBS.drp.fna.lib.n0s" -f "$ANALDIR/1_lib/$LIB" -k $K --outdir "$ANALDIR/4_reals_table" --overwrite
 if ( $status ) then
  echo
  echo
