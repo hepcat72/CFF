@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.8';                   #Global
+my $software_version_number = '1.9';                   #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -5124,16 +5124,16 @@ sub getQiimeScript
     my $scpt_str = <<"end_var";
 #!/bin/bash
 
-#USAGE: Run this script from the directory in which the cff2qiime.pl script was run
+#USAGE: Edit this script for your preferred qiime parameters and run it from the directory in which the cff2qiime.pl script was run
 
 if [ ! -a $rep_set_file ]; then
     if [ "\$PWD" != "$ENV{PWD}" ]; then
-        echo "ERROR: You must run this script from [$ENV{PWD}] (the directory in which cff2qiime.pl was run) or edit this script to correct the locations of the files."
+        echo "ERROR: You must run this script from [$ENV{PWD}] (the directory in which cff2qiime.pl was run) or edit this script to correct the relative file paths so that it can be run from a different location."
         exit 1;
     fi
 fi
 
-#File locations/names (Edit here [and delete the if..fi code above] if running from a different location)
+#File paths/names (Edit here [and delete the if..fi code above] if running from a different location)
 REPSFL=$rep_set_file
 OTUSFL=$output_file
 TAXDIR=$rep_set_file.taxa-dir
