@@ -145,8 +145,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "getReals.pl         '$ANALDIR/3_cands/$SHOWSTUBS.lib.n0s.cands' -n '$ANALDIR/2_n0s/$SHOWSTUBS.lib.n0s' -f '$ANALDIR/1_lib/$LIB' -k $K --outdir '$ANALDIR/4_reals_table'"
-getReals.pl "$ANALDIR/3_cands/$STUBS.lib.n0s.cands" -n "$ANALDIR/2_n0s/$STUBS.lib.n0s" -f "$ANALDIR/1_lib/$LIB" -k $K --outdir "$ANALDIR/4_reals_table" --overwrite
+echo -n "getReals.pl      -i '$ANALDIR/3_cands/$SHOWSTUBS.lib.n0s.cands' -n '$ANALDIR/2_n0s/$SHOWSTUBS.lib.n0s' -f '$ANALDIR/1_lib/$LIB' -k $K --outdir '$ANALDIR/4_reals_table'"
+getReals.pl -i "$ANALDIR/3_cands/$STUBS.lib.n0s.cands" -n "$ANALDIR/2_n0s/$STUBS.lib.n0s" -f "$ANALDIR/1_lib/$LIB" -k $K --outdir "$ANALDIR/4_reals_table" --overwrite
 if ( $status ) then
   echo
   echo
@@ -199,7 +199,7 @@ echo "OUTFILES:"
 echo "  $ANALDIR/*"
 echo "  run_all_qiime_tax_commands.sh"
 echo
-echo "Run ./run_all_qiime_tax_commands.sh to generate a biom file with taxonomic information (if you have qiime installed)."
+echo "If you have Qiime installed, edit the script './run_all_qiime_tax_commands.sh' based on your preferred qiime parameters and then run it to generate a biom file with taxonomic information."
 
 scriptend:
 
