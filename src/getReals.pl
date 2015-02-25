@@ -76,10 +76,8 @@ my $force             = 0;
 my @user_defaults     = getUserDefaults(1);
 
 my $GetOptHash =
-  {'i|candidate-seq-files=s' => sub {push(@$input_files,    #REQUIRED unless
-					  [sglob($_[1])])}, # <> is supplied
-   '<>'                      => sub {push(@$input_files,    #REQUIRED unless
-					  [sglob($_[0])])}, # -i is supplied
+  {'i|candidate-seq-files=s' => sub {push(@$input_files,    #REQUIRED
+					  [sglob($_[1])])},
 
    #Kept -d & --dereplicated-files for backwards compatibility
    'n|n0-files|d|dereplicated-files=s' => sub {push(@$nzero_files, #REQUIRED
@@ -366,12 +364,7 @@ if(scalar(@$bad_indexes))
 	  "found: [",
 	  join(',',(map {scalar(@{$input_files->[$_]}) . '/' .
 			   scalar(@{$nzero_files->[$_]})} @$bad_indexes)),
-	  "].",
-	  (scalar(@{$nzero_files->[0]}) == 1 ?
-	   ("  Note that any files on the command line without a flag in ",
-	    "front of it (such as -n) or not inside quotes will be ",
-	    "considered an argument of -i.  The single -n file submitted: ",
-	    "[$nzero_files->[0]->[0]].") : ''));
+	  "].");
     quit(7);
   }
 
@@ -4099,8 +4092,8 @@ $extended_header
 * ADVANCED FILE I/O FEATURES:
 
 Sets of input files, each with different output directories can be supplied.
-Supply each file set with an additional -i (or --input-file) flag.  Wrap each
-set of files in quotes and separate them with spaces.
+Supply each file set with an additional -i (or --candidate-seq-files) flag.
+Wrap each set of files in quotes and separate them with spaces.
 
 Output directories (--outdir) can be supplied multiple times in the same order
 so that each input file set can be output into a different directory.  If the
@@ -4226,7 +4219,7 @@ end_print
 	    print << 'end_print';
      -i                   REQUIRED Space-separated input candidate sequence
      --candidate-seq-              file(s) inside quotes (e.g. -i "*.txt
-       files*                      *.text").  Expands standard bsd glob
+       files                       *.text").  Expands standard bsd glob
                                    characters (e.g. '*', '?', etc.).  There
                                    must be the same number and order of files
                                    as provided to -n.  All IDs are expected to
@@ -4236,7 +4229,7 @@ end_print
                                    given only 1 value, it will be used as a
                                    file name stub.  See --extended --help for
                                    input file format and more advanced usage
-                                   examples.  *No flag required.
+                                   examples.
      -n                   REQUIRED Space-separated input N0 sequence file(s)
      --n0-files                    inside quotes (e.g. -i "*.txt *.text").
                                    There must be the same number and order of
