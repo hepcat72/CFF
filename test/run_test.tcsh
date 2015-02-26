@@ -18,7 +18,7 @@ else
  setenv FULLTEST 0
 endif
 
-cut -f 2- ../samples/Caporaso_FASTA_out/4_reals_table/global_library.fna.smry | grep -v \# | sort > ./Caporaso_FASTA_check.smry.sort.test
+cut -f 2- ../samples/Caporaso_FASTA_out/4_reals_table/global_library.fna.smry | grep -v \# | perl -ne 's/\s+(\S+)/$1/g;print if(/^\d+\s*$/)' | sort > ./Caporaso_FASTA_check.smry.sort.test
 
 if ( `diff Caporaso_FASTA_check.smry.sort Caporaso_FASTA_check.smry.sort.test` != "" ) then
  echo "Test 1 failed. Your installation does not appear to be working as expected. Please contact rleach@princeton.edu for help."
@@ -56,7 +56,7 @@ else
  setenv FULLTEST 0
 endif
 
-cut -f 2- ../samples/Caporaso_FASTQ_out/4_reals_table/global_library.fna.smry | grep -v \# | sort > ./Caporaso_FASTQ_check.smry.sort.test
+cut -f 2- ../samples/Caporaso_FASTQ_out/4_reals_table/global_library.fna.smry | grep -v \# | perl -ne 's/\s+(\S+)/$1/g;print if(/^\d+\s*$/)' | sort > ./Caporaso_FASTQ_check.smry.sort.test
 
 if ( `diff Caporaso_FASTQ_check.smry.sort Caporaso_FASTQ_check.smry.sort.test` != "" ) then
  echo "Test 2 failed. Your installation does not appear to be working as expected. Please contact rleach@princeton.edu for help."
@@ -94,7 +94,7 @@ else
  setenv FULLTEST 0
 endif
 
-cut -f 2- ../samples/Caporaso_GutSamples_out/4_reals_table/global_library.fna.smry | grep -v \# | sort > ./Caporaso_GutSamples_check.smry.sort.test
+cut -f 2- ../samples/Caporaso_GutSamples_out/4_reals_table/global_library.fna.smry | grep -v \# | perl -ne 's/\s+(\S+)/$1/g;print if(/^\d+\s*$/)' | sort > ./Caporaso_GutSamples_check.smry.sort.test
 
 if ( `diff Caporaso_GutSamples_check.smry.sort Caporaso_GutSamples_check.smry.sort.test` != "" ) then
  echo "Test 3 failed. Your installation does not appear to be working as expected. Please contact rleach@princeton.edu for help."
