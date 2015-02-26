@@ -39,6 +39,7 @@ endif
 if ( $FULLTEST == 1 ) then
  rm -rf ../samples/Caporaso_FASTA_out
 endif
+rm -f Caporaso_FASTA_check.smry.sort.test
 
 
 
@@ -76,6 +77,7 @@ endif
 if ( $FULLTEST == 1 ) then
  rm -rf ../samples/Caporaso_FASTQ_out
 endif
+rm -f Caporaso_FASTQ_check.smry.sort.test
 
 
 
@@ -113,6 +115,7 @@ endif
 if ( $FULLTEST == 1 ) then
  rm -rf ../samples/Caporaso_GutSamples_out
 endif
+rm -f Caporaso_GutSamples_check.smry.sort.test
 
 
 if ( $PASSES == 3 ) then
