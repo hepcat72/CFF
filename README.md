@@ -56,7 +56,13 @@ Now we're ready to install CFF.  In a terminal window, cd into the CFF directory
     make
     sudo make install
 
-Run example 3 to ensure the installation runs without error:
+Now test the installation. Run the following commands:
+
+    cd test
+    tcsh run_test.tcsh
+    cd ..
+
+If any of the tests failed, try running example 3 to inspect any error messages which might indicate what the problem is:
 
     cd samples
     tcsh run_example3.tcsh
