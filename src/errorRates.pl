@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.27';
+my $software_version_number = '1.28';
 my $created_on_date         = '2/18/2014';
 
 ##
@@ -575,11 +575,13 @@ foreach my $set_num (0..$#$input_file_sets)
 
     next if($skip && !$ignore_errors);
 
+    my @assumed_real_mother_ids = ((sort {$abundance_hash->{$b} <=>
+					    $abundance_hash->{$a}}
+				    keys(%$seq_hash))[0..$estimate_max]);
+
     #Calculate the num of each base in the top "10" most abundant mother seqs
     #For 10 (default) of the most abundant mother sequences
-    foreach my $mother_id ((sort {$abundance_hash->{$b} <=>
-				    $abundance_hash->{$a}}
-			    keys(%$seq_hash))[0..$estimate_max])
+    foreach my $mother_id (@assumed_real_mother_ids)
       {
 	#foreach base in A T G C
 	#	total num bases->{base} += number of bases in mother sequence
@@ -590,9 +592,7 @@ foreach my $set_num (0..$#$input_file_sets)
 
     #Cycle through the top abundant mother sequence IDs
     #foreach top mother sequence in order of descending abundance
-    foreach my $mother_id ((sort {$abundance_hash->{$b} <=>
-				    $abundance_hash->{$a}}
-			    keys(%$abundance_hash))[0..$estimate_max])
+    foreach my $mother_id (@assumed_real_mother_ids)
       {
 	#neighbor sum = square diff sum = {}
 	my $neighbor_sums          = {};
@@ -841,9 +841,7 @@ foreach my $set_num (0..$#$input_file_sets)
     $first_set = 0;
 
     #For 10 (default) of the most abundant mother sequences
-    foreach my $mother_id ((sort {$abundance_hash->{$b} <=>
-				    $abundance_hash->{$a}}
-			    keys(%$seq_hash))[0..$estimate_max])
+    foreach my $mother_id (@assumed_real_mother_ids)
       {
 	#total abundance = abundance of mother sequence
 	$total_abundance = $abundance_hash->{$mother_id};
@@ -939,9 +937,7 @@ foreach my $set_num (0..$#$input_file_sets)
 					    ->{$_}->{$subst_type}) ?
 					      $estimated_error_rates->{DATA}
 						->{$_}->{$subst_type} : 0}
-				(sort {$abundance_hash->{$b} <=>
-					 $abundance_hash->{$a}}
-				 keys(%$seq_hash))[0..$estimate_max]]);
+				@assumed_real_mother_ids]);
 	if(!defined($median))
 	  {$median = 'error'}
 	$estimated_error_rates->{MED}->{$subst_type} = $median;
