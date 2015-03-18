@@ -1,6 +1,6 @@
 #!/bin/tcsh
 
-#VERSION: 1.3
+#VERSION: 1.0
 
 #USAGE: tcsh run_fastx_on_FastQ.tcsh barcode_file.fastq sequences.fastq barcode_list.txt
 
