@@ -76,7 +76,7 @@ If you encounter any problems during the example run, refer to "INSTALL" below.
 
 The pipeline is primarily a 7-step process whose goal is to find sequences that are as error-free as possible. There are also 3 additional steps at the end to: filter insertions & deletions, convert the output to be compatible with qiime version 1.3.0 (see qiime.org), and a follow-up analysis designed to find pairs of similar sequences that behave differently in a population. It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available:
 
-    1.  mergeSeqs.pl        truncates, dereplicates, and renames sequences in samples
+    1.  mergeSeqs.pl        trims, dereplicates, and renames sequences in samples
     2.  neighbors.pl        generates a list of Hamming distance 1 sequences
     3.  errorRates.pl       generates a Z-Score histogram (see -h)
     4.  errorRates.pl       estimates substitution error rate (see -z)
@@ -248,7 +248,7 @@ Run these commands:
 
 Example 1 is roughly equivalent to running the following commands (the difference is that when you run the example script, the output files will be neatly organized in a number of subdirectories so you can follow the flow of logic more easily).  Note, $outdir = "Caporaso_FASTA_out".
 
-    mergeSeqs.pl        Caporaso_FASTA/L6S2?_19???.fna -f example1.glib --outdir $outdir -o .lib -p ''
+    mergeSeqs.pl        Caporaso_FASTA/L6S2?_19???.fna -f example1.glib --outdir $outdir -o .lib -p '' -b 130
     neighbors.pl        $outdir/example1.glib -o .nbrs
     errorRates.pl       $outdir/example1.glib -n $outdir/example1.glib.nbrs -z 2 -o .erates
     nZeros.pl           $outdir/L6S2?_19???.fna.lib -n $outdir/example1.glib.nbrs -r $outdir/example1.glib.erates -o .n0s
