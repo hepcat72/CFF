@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.14';
+my $software_version_number = '2.15';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -52,7 +52,7 @@ my $value_subst_str     = '__VALUE_HERE__';
 my $id_delim            = "lib_$value_subst_str;";
 my $abund_delimiter     = "size=$value_subst_str;";
 my $append_defline      = 0;
-my $trim_size           = -1; #-1 = detect shortest sequence and trim to that
+my $trim_size           = 0;  #-1 = detect shortest sequence and trim to that
                               #length, 0 = no trim & error if not all the same
                               #size, >0 = trim to that size and throw anything
                               #out that is shorter
@@ -72,6 +72,8 @@ my $GetOptHash =
 					[sglob($_[1])])},#         is supplied
    '<>'                    => sub {push(@$input_files,   #REQUIRED unless -i
 					[sglob($_[0])])},#         is supplied
+   'b|trim-to-size=s'      => \$trim_size,               #OPTIONAL [0] (-1=auto
+				                         #           0=no trim)
    'f|merged-seq-file=s'   => sub {push(@$outfiles,      #OPTIONAL [stdout]
 					sglob($_[1]))},
    'u|merged-tab-file=s'   => sub {push(@$mapfiles,      #OPTIONAL [no output]
@@ -90,9 +92,6 @@ my $GetOptHash =
 				                         # [size=_VL_HERE_;]
    'g|id-delimiter=s'      => \$id_delim,                #OPTIONAL
 				                         # [lib__VL_HERE_;]
-   'b|trim-to-size=s'      => \$trim_size,               #OPTIONAL [-1](-1=
-				                         #auto,0=no trim,>0=
-				                         #trim length)
    'c|append-to-defline!'  => \$append_defline,          #OPTIONAL [Off]
    'overwrite'             => \$overwrite,               #OPTIONAL [Off]
    'skip-existing!'        => \$skip_existing,           #OPTIONAL [Off]
@@ -398,13 +397,25 @@ if(!$isglobal && (defined($outfile_suffix) || defined($tab_suffix)))
     quit(6);
   }
 
+if(!defined($trim_size))
+  {
+    error("Trim size (-b) is required.");
+    usage(1);
+    quit(7);
+  }
+
 if($trim_size !~ /^-?\d+$/)
   {
     error("Invalid trim size (-b): [$trim_size].");
     quit(7);
   }
 elsif($trim_size > 0)
-  {verbose("Trimming to size: [$trim_size].")}
+  {
+    if($trim_size < 32)
+      {warning("Trim size size is really small: [$trim_size].  A larger size ",
+	       "is recommended but not required.  Proceeding.")}
+    verbose("Trimming to size: [$trim_size].");
+  }
 
 #If output is going to STDOUT instead of output files with different extensions
 #or if STDOUT was redirected, output run info once
@@ -443,6 +454,7 @@ else
 
 my $abund_parse_errs = {};
 my $diff_sizes       = 0;
+my $size_error_mode  = ($trim_size == 0 ? 1 : 0);
 
 #foreach my $input_file_set (@$input_files)
 foreach my $set_num (0..$#$input_file_sets)
@@ -452,7 +464,6 @@ foreach my $set_num (0..$#$input_file_sets)
     my $current_mapfile = $input_file_sets->[$set_num]->[2];
     my $outfile_stub    = $outfile_stub_sets->[$set_num]->[0];
     my $current_outfile = $outfile_stub_sets->[$set_num]->[1];
-    my $tmp_trim_size   = $trim_size;
 
     #If an explicit path was provided with the output library file, use it
     #instead of the one with the outdir replacement. This is, after all, an
@@ -526,7 +537,7 @@ foreach my $set_num (0..$#$input_file_sets)
 
     my $recs = [];
     my($smallest,$smallest_id);
-    if($tmp_trim_size < 0)
+    if($trim_size < 0)
       {
 	while($rec = getNextSeqRec(*INPUT,0,$input_file))
 	  {
@@ -534,7 +545,7 @@ foreach my $set_num (0..$#$input_file_sets)
 	    my $s = length($rec->[1]);
 	    if(!defined($smallest) || $s < $smallest)
 	      {
-		$smallest = $s;
+		$smallest    = $s;
 		$smallest_id = $rec->[0];
 	      }
 	  }
@@ -545,11 +556,13 @@ foreach my $set_num (0..$#$input_file_sets)
 	      unless(-z $input_file);
 	    next unless($force);
 	  }
-	$tmp_trim_size = $smallest;
-	if($tmp_trim_size < 10)
-	  {warning("Smallest sequence size is really small: [$smallest].")}
+	$trim_size = $smallest;
+	if($trim_size < 32)
+	  {warning("Smallest sequence size is really small: [$smallest].  A ",
+		   "larger size is recommended, but not required.  Please ",
+		   "use -b on the command line to select a larger trim size.")}
 	verbose("Trimming to smallest sequence size: [$smallest] ",
-		"($smallest_id).");
+		"($smallest_id) in first file [$input_file].");
       }
     else
       {@$recs = getNextSeqRec(*INPUT,0,$input_file)}
@@ -603,18 +616,26 @@ foreach my $set_num (0..$#$input_file_sets)
 	my $len = length($seq);
 
 	#If we're trimming to an arbitrary length defined on the command line
-	if($tmp_trim_size > 0 && $len != $tmp_trim_size)
+	if($trim_size == 0)
+	  {$trim_size = $len}
+	elsif($trim_size > 0 && $len != $trim_size)
 	  {
-	    if($len < $tmp_trim_size)
+	    if(!$size_error_mode && $len < $trim_size)
 	      {
 		verbose("Skipping short sequence: [$id], record: [$rec_num] ",
 			"in file: [$input_file].");
 		next;
 	      }
+	    elsif($size_error_mode)
+	      {
+		error("Sequence: [$id], record: [$rec_num] in file: ",
+		      "[$input_file] is the wrong size: [$len].  Skipping.");
+		next;
+	      }
 	    else
 	      {
-		$seq = substr($seq,0,$tmp_trim_size);
-		$len = $tmp_trim_size;
+		$seq = substr($seq,0,$trim_size);
+		$len = $trim_size;
 		if(!defined($seq) || $seq eq '')
 		  {
 		    error("Unable to trim sequence: [$id], record: ",
@@ -3237,7 +3258,8 @@ rleach\@genomics.princeton.edu
 
 * WHAT IS THIS: This script takes a series of aligned, variable-length, no-gap,
                 input sequence files and merges them into 1 file (trimming the
-                sequences to the length of the smallest sequence or to an
+                sequences to the length of the smallest sequence in the first
+                sequence file (skipping shorter sequences) or to an
                 arbitrarily selected length - see -b), outputting each unique
                 sequence once with its cumulative abundance across all input
                 files.  Abundances can either be computed from scratch or
@@ -3479,6 +3501,14 @@ sub usage
 	    print << 'end_print';
      -i|--seq-file        REQUIRED Input sequence file(s).  See --help for file
                                    format.
+     -b|--trim-to-size    OPTIONAL [0] Trim sequences to this length.  All
+                                   sequences must be the same length.  0 = no
+                                   trim.  This assumes you have already trimmed
+                                   your sequences.  -1 = auto (not
+                                   recommended).  This selects the shortest
+                                   sequence in the first file as the trim
+                                   length.  Sequences shorter than a supplied
+                                   trim length are skipped.
      -f|--merged-seq-file OPTIONAL [stdout] Merged sequence output file.  See
                                    --help for file format.
      -u|--merged-tab-file OPTIONAL [no output] Merged tab-delimited output
@@ -3492,8 +3522,6 @@ sub usage
                                    source file abundances.
      -t|--filetype        OPTIONAL [auto](fasta,fastq,auto) Input file type
                                    (provided to -i).
-     -b|--trim-to-size    OPTIONAL [-1] Trim sequences to this length.  -1 =
-                                   auto, 0 = no trim, >0 = trim length.
      --outdir             OPTIONAL [none] Directory to put output files.
      --verbose            OPTIONAL Verbose mode/level.  (e.g. --verbose 2)
      --quiet              OPTIONAL Quiet mode.
@@ -3525,6 +3553,17 @@ end_print
                                    input file format & advanced usage examples.
                                    Do not need to supply if there is input on
                                    standard in.   *No flag required.
+     -b|--trim-to-size    OPTIONAL [0] Trim sequences to this length.  All
+                                   sequences must be the same length.  0 = no
+                                   trim.  This assumes you have already trimmed
+                                   your sequences and will issue an error if a
+                                   sequence of a different length is
+                                   encountered.  -1 = auto (not recommended).
+                                   This selects the shortest sequence in the
+                                   first file as the trim length and skips
+                                   sequences in subsequent files that are
+                                   shorter.  Sequences shorter than a supplied
+                                   trim length are skipped.
      -f|--merged-seq-file OPTIONAL [stdout] Merged sequence output file.  Will
                                    not overwrite without --overwite.  Default
                                    behavior prints output to standard out.  If
@@ -3574,13 +3613,6 @@ end_print
                                    type.  Using this instead of auto will make
                                    file reading faster.  "auto" cannot be used
                                    when redirecting a file in.
-     -b|--trim-to-size    OPTIONAL [-1] Trim sequences to this length.  A value
-                                   less than 0 will cause all sequences to be
-                                   trimmed to the length of the shortest
-                                   sequence present (which may be different in
-                                   each input file).  A value of 0 will not
-                                   trim, but rather generate an error if all
-                                   the sequences are not the same length.
      --outdir             OPTIONAL [none] Directory to put output files.  This
                                    option requires -o.  Default output
                                    directory is the same as that containing
