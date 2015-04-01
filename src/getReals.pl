@@ -932,7 +932,6 @@ foreach my $reals_file (keys(%$hash))
 
 	my $table_str =
 	  "#ID\t" . join("\t",
-			 sort {$a cmp $b}
 			 map {my $f = $_;$f =~ s/.*\///;$f}
 			 getVariablePrefixes(@{$hash->{$reals_file}
 						 ->{SAMPLES}})) . "\n";
@@ -975,7 +974,6 @@ foreach my $reals_file (keys(%$hash))
 
 	my $table_str =
 	  "#ID\t" . join("\t",
-			 sort {$a cmp $b}
 			 map {my $f = $_;$f =~ s/.*\///;$f}
 			 getVariablePrefixes(@{$hash->{$reals_file}
 						 ->{SAMPLES}})) . "\n";
