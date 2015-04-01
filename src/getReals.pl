@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.14';
+my $software_version_number = '1.15';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -48,7 +48,7 @@ my $version           = 0;
 my $overwrite         = 0;
 my $skip_existing     = 0;
 my $header            = 0;
-my $error_limit       = 50;
+my $error_limit       = 5;
 my $dry_run           = 0;
 my $use_as_default    = 0;
 my $sigdig            = 3;
@@ -125,7 +125,7 @@ my $GetOptHash =
    'extended'                => \$extended,                 #OPTIONAL [Off]
    'version'                 => \$version,                  #OPTIONAL [Off]
    'header!'                 => \$header,                   #OPTIONAL [On]
-   'error-type-limit=s'      => \$error_limit,              #OPTIONAL [0]
+   'error-type-limit=s'      => \$error_limit,              #OPTIONAL [5]
    'dry-run'                 => \$dry_run,                  #OPTIONAL [Off]
    'use-as-default|save-as-default'                         #OPTIONAL [Off]
                              => \$use_as_default,
@@ -576,6 +576,26 @@ foreach my $set_num (0..$#$input_file_sets)
 	  (undef,undef,undef,undef);
     if(!defined($reals_file))
       {$reals_file = 'STDOUT'}
+
+    #Check that the files being processed together are likely a correct pair.
+    my $input_file_name = $input_file;
+    $input_file_name =~ s/.*\///;
+    my $nzero_file_name = $nzero_file;
+    $nzero_file_name =~ s/.*\///;
+    $nzero_file_name = quotemeta($nzero_file_name);
+    if($input_file_name !~ /^$nzero_file_name/)
+      {
+	warning("The name of the candidate file (-i) [$input_file] does not ",
+		"appear to match the name of the N-Zero file (-n) ",
+		"[$nzero_file].  If this is intentional but a correct ",
+		"pairing of files from the same sample, you may ignore this ",
+		"warning.  These files must be supplied in the same ",
+		"respective order on the command line, or if a glob pattern ",
+		"is being used (e.g. '*.cands' and '*.n0s'), the files must ",
+		"be named in a consistent way (i.e. the beginnings of the ",
+		"file names must match) so that they are expanded by bash in ",
+		"the same respective order.");
+      }
 
     #Keep track of all the input files associated with this output file for the
     #table
@@ -4410,7 +4430,7 @@ end_print
                                    template used to create this script is
                                    printed as well.
      --debug              OPTIONAL Debug mode/level.  (e.g. --debug --debug)
-     --error-type-limit   OPTIONAL [50] Limits each type of error/warning to
+     --error-type-limit   OPTIONAL [5] Limits each type of error/warning to
                                    this number of outputs.  Intended to
                                    declutter output.  Note, a summary of
                                    warning/error types is printed when the
