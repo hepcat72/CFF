@@ -12,7 +12,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.18';
+my $software_version_number = '1.19';
 my $created_on_date         = '2/12/2014';
 
 ##
@@ -1123,7 +1123,8 @@ sub getCommand
 ##
 sub sglob
   {
-    my $command_line_string = $_[0];
+    #Convert possible 'Getopt::Long::CallBack' to SCALAR by wrapping in quotes:
+    my $command_line_string = "$_[0]";
     unless(defined($command_line_string))
       {
 	warning("Undefined command line string encountered.");
@@ -2398,16 +2399,21 @@ sub closeOut
 #scalar context and there are more than 1 elements in the parameter array
 sub copyArray
   {
-    if(scalar(grep {ref(\$_) ne 'SCALAR' && ref($_) ne 'ARRAY'} @_))
+    if(scalar(grep {defined($_) && ref(\$_) ne 'SCALAR' && ref($_) ne 'ARRAY'}
+	      @_))
       {
-	error("Invalid argument - not an array of scalars.");
+	my @errs = map {ref($_)} grep {defined($_) && ref(\$_) ne 'SCALAR' &&
+					 ref($_) ne 'ARRAY'} @_;
+	error("Invalid argument - not an array of scalars [",join(',',@errs),
+	      "].");
 	quit(-18);
       }
     my(@copy);
     foreach my $elem (@_)
       {push(@copy,(defined($elem) && ref($elem) eq 'ARRAY' ?
 		   [copyArray(@$elem)] : $elem))}
-    debug("Returning array copy of [@copy].") if($DEBUG < -99);
+    debug({LEVEL => -99},"Returning array copy of [",
+	  join(',',map {defined($_) ? $_ : 'undef'} @copy),"].");
     return(wantarray ? @copy : (scalar(@copy) > 1 ? [@copy] : $copy[0]));
   }
 
