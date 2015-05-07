@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.15';
+my $software_version_number = '2.16';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -567,11 +567,23 @@ foreach my $set_num (0..$#$input_file_sets)
     else
       {@$recs = getNextSeqRec(*INPUT,0,$input_file)}
 
+    if(scalar(@$recs) == 1 && !defined($recs->[0]))
+      {
+	error("No sequences found in input file [$input_file].");
+	next;
+      }
+
     #For each line in the current input file
     foreach $rec (@$recs)
       {
 	$rec_num++;
 	verboseOverMe("[$input_file] Reading record: [$rec_num].");
+
+	if(!defined($rec))
+	  {
+	    error("Encountered an undefined sequence record.");
+	    next;
+	  }
 
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
