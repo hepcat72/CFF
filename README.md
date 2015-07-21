@@ -34,14 +34,14 @@ Note: Be sure to get **usearch version 7.0.1090**.  The new version 8 is current
 
 ##### Mac OS X:
 
-    ./install.tcsh "your_usearch_download_link"
+    ./install.tcsh "your_usearch_download_url"
 
 If you already have usearch version 7 installed, you may replace the download link with the path to your usearch executable.
 
 ##### Linux:
 
     sudo ./install_linux.sh
-    ./install.tcsh "your_usearch_download_link"
+    ./install.tcsh "your_usearch_download_url"
 
 The linux install script installs some dependencies of the install script if they are not present on your system.
 
@@ -176,7 +176,7 @@ http://drive5.com/cgi-bin/upload3.py?license=0000000000000000000
 
 ##### Root-level/system install:
 
-    sudo ./install.tcsh
+    sudo ./install.tcsh "http://personal_usearch_download_url"
 
 #### Linux:
 ##### User-level/local install:
@@ -193,11 +193,11 @@ Note, the `sudo ./install_linux.sh` requires root access, but may not be necessa
 
 The usage for the install.tcsh script includes 2 options:
 
-**USAGE 1**: install.tcsh <USEARCH>
+**USAGE 1**: install.tcsh "**USEARCH**"
 
-**USAGE 2**: install.tcsh <USEARCH> <MUSCLE>
+**USAGE 2**: install.tcsh "**USEARCH**" "**MUSCLE**"
 
-Where "<USEARCH>" and "<MUSCLE>" can be:
+Where "**USEARCH**" and "**MUSCLE**" can be:
  1. A download URL of a gzipped tarball or executable
  2. A tarball or executable
  3. "skip" or "ignore"
