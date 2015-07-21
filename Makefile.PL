@@ -1,7 +1,8 @@
+#Makefile.PL version 1.1 for CFF
+
 require 5.000;
 use ExtUtils::MakeMaker;
 my @scripts = qw(mergeSeqs.pl neighbors.pl errorRates.pl nZeros.pl getCandidates.pl getReals.pl filterIndels.pl cff2qiime.pl interestingPairs.pl run_CFF_on_FastA.tcsh run_CFF_on_FastQ.tcsh);
-
 
 
 
@@ -158,7 +159,13 @@ sub getExe
 
     if(eval("use File::Which;1;") ||
        eval("use local::lib;use File::Which;1;"))
-      {$exe = which($sent_exe)}
+      {
+	$exe = which($sent_exe);
+	if((!defined($exe) || $exe eq '') && -e $sent_exe && -x $sent_exe)
+	  {$exe = $sent_exe}
+	elsif(!defined($exe))
+	  {$exe = ''}
+      }
     else
       {
 	print STDERR ("File::Which not found, switching to backup method.\n");
