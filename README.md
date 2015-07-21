@@ -22,47 +22,47 @@ This section walks you through what you need to do to go from scratch to first r
 
 1. First, download CFF and extract the zip file by double-clicking it:
 
-[https://github.com/hepcat72/CFF/archive/master.zip](https://github.com/hepcat72/CFF/archive/master.zip)
+   [https://github.com/hepcat72/CFF/archive/master.zip](https://github.com/hepcat72/CFF/archive/master.zip)
 
 2. Second, if you do not have usearch version 7 installed, obtain a download link here:
 
-[http://www.drive5.com/usearch/download.html](http://www.drive5.com/usearch/download.html)
+   [http://www.drive5.com/usearch/download.html](http://www.drive5.com/usearch/download.html)
 
-Note: Be sure to get **usearch version 7.0.1090**.  The new version 8 is currently incompatible.  Also note, the script will install muscle as well.  See the "INSTALL" section for other parameters or for information on skipping the muscle install.
+   Note: Be sure to get **usearch version 7.0.1090**.  The new version 8 is currently incompatible.  Also note, the script will install muscle as well.  See the "INSTALL" section for other parameters or for information on skipping the muscle install.
 
 3. Open a terminal window and `cd` into the CFF directory (e.g. `cd ~/Downloads/CFF-master`), then run the following commands for your system.  Note, the install script will install both usearch and muscle.  Both installs can be skipped by running `./install.tcsh skip skip` instead of the given command.
 
-##### Mac OS X:
+   ##### Mac OS X:
 
     ./install.tcsh "your_usearch_download_url"
 
-If you already have usearch version 7 installed, you may replace the download link with the path to your usearch executable.
+   If you already have usearch version 7 installed, you may replace the download link with the path to your usearch executable.
 
-##### Linux:
+   ##### Linux:
 
     sudo ./install_linux.sh
     ./install.tcsh "your_usearch_download_url"
 
-The linux install script installs some dependencies of the install script if they are not present on your system.
+   The linux install script installs some dependencies of the install script if they are not present on your system.
 
-The install script will tell you upon completion whether the installation succeeded and passed its diagnostic tests or whether installation failed.
+   The install script will tell you upon completion whether the installation succeeded and passed its diagnostic tests or whether installation failed.
 
 4. Finally, to complete the install and access the CFF commands, open a new terminal window.
 
-If you run into any problems, refer to the "INSTALL" section below.
+   If you run into any problems, refer to the "INSTALL" section below.
 
 5. [OPTIONAL] If you wish, you may manually test your CFF installation in a new terminal window by running the following command inside the test directory of the CFF installation (e.g. `cd ~/Downloads/CFF-master/test`):
 
     tcsh run_test.tcsh
 
-If any of the tests failed, try running example 3 to inspect any error messages which might indicate what the problem is:
+   If any of the tests failed, try running example 3 to inspect any error messages which might indicate what the problem is:
 
     cd samples
     tcsh run_example3.tcsh
 
-Example 3 demonstrates the value of the interestingPairs.pl script.  The samples are taken from a male and a female subject (see [1]), at 3 time points separated by 3 months, with a 7th "unknown" sample taken 2 months afterward.  The analysis shows that the dominant strain in the female samples and the dominant strain in the male samples (sequences lib_1 and lib_2) differ by only one nucleotide. Their strongly negative dynamical similarity is indicative of strongly anti-correlated distribution across samples.  And indeed, one of these sequences is dominant in the male subject but absent in the female, and vice versa for the other sequence, as you can see in the abundance table summary file (located in Caporaso_GutSamples_out/4_reals_table/), where one should find the rows corresponding to lib_1 and lib_2 and observe that sequence lib_1 is strongly present in samples (M3_Apr09, M3_Jan09, and M3_Oct08), and sequence lib_2 in (F4_Apr09, F4_Jan09, and F4_Oct08).  The seventh "unknown" sample (column 1_335 in the abundance table summary file) is confidently identified as coming from the male subject, because it has the male-subject-specific strain.  And indeed, this sample was taken from the male subject. This illustrates the utility of our method, stressing, in particular, that you don't even necessarily need a lot of samples to see meaningful features at the sub-OTU level.  Any other cluster-based method would have equated the two sequences differing by a single base.
+   Example 3 demonstrates the value of the interestingPairs.pl script.  The samples are taken from a male and a female subject (see [1]), at 3 time points separated by 3 months, with a 7th "unknown" sample taken 2 months afterward.  The analysis shows that the dominant strain in the female samples and the dominant strain in the male samples (sequences lib_1 and lib_2) differ by only one nucleotide. Their strongly negative dynamical similarity is indicative of strongly anti-correlated distribution across samples.  And indeed, one of these sequences is dominant in the male subject but absent in the female, and vice versa for the other sequence, as you can see in the abundance table summary file (located in Caporaso_GutSamples_out/4_reals_table/), where one should find the rows corresponding to lib_1 and lib_2 and observe that sequence lib_1 is strongly present in samples (M3_Apr09, M3_Jan09, and M3_Oct08), and sequence lib_2 in (F4_Apr09, F4_Jan09, and F4_Oct08).  The seventh "unknown" sample (column 1_335 in the abundance table summary file) is confidently identified as coming from the male subject, because it has the male-subject-specific strain.  And indeed, this sample was taken from the male subject. This illustrates the utility of our method, stressing, in particular, that you don't even necessarily need a lot of samples to see meaningful features at the sub-OTU level.  Any other cluster-based method would have equated the two sequences differing by a single base.
 
-If you encounter any problems during the example run, refer to "INSTALL" below.
+   If you encounter any problems during the example run, refer to "INSTALL" below.
 
 
 ## THE PIPELINE
