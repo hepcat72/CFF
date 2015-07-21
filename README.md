@@ -34,14 +34,14 @@ This section walks you through what you need to do to go from scratch to first r
 
    ##### Mac OS X:
 
-    ./install.tcsh "your_usearch_download_url"
+       ./install.tcsh "your_usearch_download_url"
 
    If you already have usearch version 7 installed, you may replace the download link with the path to your usearch executable.
 
    ##### Linux:
 
-    sudo ./install_linux.sh
-    ./install.tcsh "your_usearch_download_url"
+       sudo ./install_linux.sh
+       ./install.tcsh "your_usearch_download_url"
 
    The linux install script installs some dependencies of the install script if they are not present on your system.
 
@@ -53,12 +53,12 @@ This section walks you through what you need to do to go from scratch to first r
 
 5. [OPTIONAL] If you wish, you may manually test your CFF installation in a new terminal window by running the following command inside the test directory of the CFF installation (e.g. `cd ~/Downloads/CFF-master/test`):
 
-    tcsh run_test.tcsh
+       tcsh run_test.tcsh
 
    If any of the tests failed, try running example 3 to inspect any error messages which might indicate what the problem is:
 
-    cd samples
-    tcsh run_example3.tcsh
+       cd samples
+       tcsh run_example3.tcsh
 
    Example 3 demonstrates the value of the interestingPairs.pl script.  The samples are taken from a male and a female subject (see [1]), at 3 time points separated by 3 months, with a 7th "unknown" sample taken 2 months afterward.  The analysis shows that the dominant strain in the female samples and the dominant strain in the male samples (sequences lib_1 and lib_2) differ by only one nucleotide. Their strongly negative dynamical similarity is indicative of strongly anti-correlated distribution across samples.  And indeed, one of these sequences is dominant in the male subject but absent in the female, and vice versa for the other sequence, as you can see in the abundance table summary file (located in Caporaso_GutSamples_out/4_reals_table/), where one should find the rows corresponding to lib_1 and lib_2 and observe that sequence lib_1 is strongly present in samples (M3_Apr09, M3_Jan09, and M3_Oct08), and sequence lib_2 in (F4_Apr09, F4_Jan09, and F4_Oct08).  The seventh "unknown" sample (column 1_335 in the abundance table summary file) is confidently identified as coming from the male subject, because it has the male-subject-specific strain.  And indeed, this sample was taken from the male subject. This illustrates the utility of our method, stressing, in particular, that you don't even necessarily need a lot of samples to see meaningful features at the sub-OTU level.  Any other cluster-based method would have equated the two sequences differing by a single base.
 
