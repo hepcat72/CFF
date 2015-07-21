@@ -20,47 +20,40 @@ This README file provides basic installation/usage information. For a thorough i
 
 This section walks you through what you need to do to go from scratch to first results.
 
-First, download CFF and extract the zip file by double-clicking it:
+1. First, download CFF and extract the zip file by double-clicking it:
 
 [https://github.com/hepcat72/CFF/archive/master.zip](https://github.com/hepcat72/CFF/archive/master.zip)
 
-Install dependencies and make sure they are in your path (e.g. run `which muscle`). Follow the instructions on their respective download pages:
+2. Second, if you do not have usearch version 7 installed, obtain a download link here:
 
-**muscle - alignment tool required by filterIndels.pl**<BR>
-[http://www.drive5.com/muscle/downloads.htm](http://www.drive5.com/muscle/downloads.htm)
-
-**usearch (v7) - sequence search tool required by getReals.pl & interestingPairs.pl**<BR>
 [http://www.drive5.com/usearch/download.html](http://www.drive5.com/usearch/download.html)
 
-Note: Be sure to get **usearch version 7.0.1090**. The new version 8 is currently incompatible.
+Note: Be sure to get **usearch version 7.0.1090**.  The new version 8 is currently incompatible.  Also note, the script will install muscle as well.  See the "INSTALL" section for other parameters or for information on skipping the muscle install.
 
-Install perl module dependencies. You may have to answer a series of questions to set up cpan at first, but the default options are usually fine. Run this command to start CPAN:
+3. Open a terminal window and `cd` into the CFF directory (e.g. `cd ~/Downloads/CFF-master`), then run the following commands for your system.  Note, the install script will install both usearch and muscle.  Both installs can be skipped by running `./install.tcsh skip skip` instead of the given command.
 
-    sudo env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 perl -MCPAN -e shell
+##### Mac OS X:
 
-Enter your system password, then at the cpan prompt, install these dependent modules using these commands:
+    ./install.tcsh "your_usearch_download_link"
 
-    install Getopt::Long
-    install File::Glob
-    install IPC::Open3
-    install IO::Select
-    install IO::Pipe::Producer
-    install Sys::Info
-    install Sys::MemInfo
-    install File::Which
-    install Math::Random
+If you already have usearch version 7 installed, you may replace the download link with the path to your usearch executable.
 
-Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
+##### Linux:
 
-    perl Makefile.PL
-    make
-    sudo make install
+    sudo ./install_linux.sh
+    ./install.tcsh "your_usearch_download_link"
 
-Now test the installation. Run the following commands:
+The linux install script installs some dependencies of the install script if they are not present on your system.
 
-    cd test
+The install script will tell you upon completion whether the installation succeeded and passed its diagnostic tests or whether installation failed.
+
+4. Finally, to complete the install and access the CFF commands, open a new terminal window.
+
+If you run into any problems, refer to the "INSTALL" section below.
+
+5. [OPTIONAL] If you wish, you may manually test your CFF installation in a new terminal window by running the following command inside the test directory of the CFF installation (e.g. `cd ~/Downloads/CFF-master/test`):
+
     tcsh run_test.tcsh
-    cd ..
 
 If any of the tests failed, try running example 3 to inspect any error messages which might indicate what the problem is:
 
@@ -164,6 +157,118 @@ Other than this README and the [LICENSE](./LICENSE), documentation is in the scr
 
 Follow the installation procedure under "**GETTING STARTED**".  If you have any trouble, refer to the notes below. If you are installing on a Qiime 1.3 Virtual Box, see the QIIME subsection below.
 
+### QUICK INSTALL
+
+The install script will install both usearch and muscle third-party executables, however a personal download link for usearch must be obtained by the user.  Obtain a download link for usearch version 7.0.1090 here:
+
+#### Obtain your personal usearch download URL:
+
+[http://www.drive5.com/usearch/download.html](http://www.drive5.com/usearch/download.html)
+
+Note: Be sure to get **usearch version 7.0.1090**.  The new version 8 is currently incompatible.  The URL will look something like this:
+
+http://drive5.com/cgi-bin/upload3.py?license=0000000000000000000
+
+#### Mac OS X:
+##### User-level/local install:
+
+    ./install.tcsh "http://personal_usearch_download_url"
+
+##### Root-level/system install:
+
+    sudo ./install.tcsh
+
+#### Linux:
+##### User-level/local install:
+
+    sudo ./install_linux.sh
+    ./install.tcsh "http://personal_usearch_download_url"
+
+Note, the `sudo ./install_linux.sh` requires root access, but may not be necessary.  If you do not have root access, just skip that command.  If you run into problems, find someone with root access to run the sudo command.
+
+##### Root-level/system install:
+
+    sudo ./install_linux.sh
+    sudo ./install.tcsh "http://personal_usearch_download_url"
+
+The usage for the install.tcsh script includes 2 options:
+
+**USAGE 1**: install.tcsh <USEARCH>
+
+**USAGE 2**: install.tcsh <USEARCH> <MUSCLE>
+
+Where "<USEARCH>" and "<MUSCLE>" can be:
+ 1. A download URL of a gzipped tarball or executable
+ 2. A tarball or executable
+ 3. "skip" or "ignore"
+
+Examples:
+
+    install.tcsh http://drive5.com/cgi-bin/upload3.py?license=0000000000000000000
+    install.tcsh usearch7.0.1090_i86osx32
+    install.tcsh usearch muscle3.8.31_i86darwin64.tar
+    install.tcsh skip http://www.drive5.com/muscle/downloads3.8.31/muscle3.8.31_i86linux64.tar.gz
+
+usearch and muscle are third-party applications not maintained by CFF.
+
+The install_linux.sh script installs some dependencies of the install.tcsh script if they are not on your system, specifically: tcsh, curl, and perl's ExtUtils::MakeMaker module.
+
+The install.tcsh script does a few things of note:
+
+1. It will create a "soft link" named "usearch" that points to the usearch version 7 executable.  "usearch" is the default command used by the CFF pipeline.  If you have trouble, make sure that usearch version 7 has precedence in your PATH by running `usearch -version`.
+2. It will create a "soft link" named "muscle" that points to the muscle executable.
+3. On Mac OS X, if the developer tools are not installed, it will automatically ask you if you would like to install XCode, and then walk you through that process.
+4. It installs cpanminus and local::lib to aid in the install of the dependent perl modules.
+
+### UPDATE
+
+To update your copy of this package, simply cd into the CFF directory in a terminal window and run the following commands.
+
+    perl Makefile.PL
+    make
+    sudo make install
+
+You can skip installing the dependencies such as usearch, muscle, and the required perl modules, however note any discrepancies when you run `perl Makefile.PL` and install anything that is missing or below the required version number.
+
+Note that each perl script in the package has its own version number.  If you include --header as an option when running commands, output files will have a header with run information, including the version of the script that was used to generate the output.  Rest assured that all the elements of the pipeline will skip the headers when processing the files (except for the output of cff2qiime.pl, as qiime does not recognize the headers).
+
+
+### ADVANCED INSTALL
+
+Install dependencies and make sure they are in your path (e.g. run `which muscle`). Follow the instructions on their respective download pages:
+
+**muscle - alignment tool required by filterIndels.pl**
+
+[http://www.drive5.com/muscle/downloads.htm](http://www.drive5.com/muscle/downloads.htm)
+
+**usearch (v7) - sequence search tool required by getReals.pl & interestingPairs.pl**
+
+[http://www.drive5.com/usearch/download.html](http://www.drive5.com/usearch/download.html)
+
+Note: Be sure to get **usearch version 7.0.1090**. The new version 8 is currently incompatible.
+
+Install perl module dependencies. You may have to answer a series of questions to set up cpan at first, but the default options are usually fine. Run this command to start CPAN:
+
+    sudo env FTP_PASSIVE=1 PERL_MM_USE_DEFAULT=1 perl -MCPAN -e shell
+
+Enter your system password, then at the cpan prompt, install these dependent modules using these commands:
+
+    install Getopt::Long
+    install File::Glob
+    install IPC::Open3
+    install IO::Select
+    install IO::Pipe::Producer
+    install Sys::Info
+    install Sys::MemInfo
+    install File::Which
+    install Math::Random
+
+Now we're ready to install CFF.  In a terminal window, cd into the CFF directory and run the following commands:
+
+    perl Makefile.PL
+    make
+    sudo make install
+
 ##### USEARCH
 The newest version of usearch (version 8.x, release in 2015) is different enough to make it incompatible with the current version of CFF. If you already have version 8 installed, please refer to the [version 7 notes](http://www.drive5.com/usearch/manual/quick_usearch7.html), particularly, the section on [installing multiple versions](http://www.drive5.com/usearch/manual/multiple_versions.html).
 
@@ -226,13 +331,6 @@ You can install CFF without installing usearch.  If you want to run getReals.pl 
 
 ###### interestingPairs.pl
 You can install CFF without installing usearch.  If you want to run interestingPairs.pl, you can install usearch at a later time.  To run without error, usearch is required. If it's not in your path, you can supply the usearch executable with full path using the -y option.
-
-
-## UPDATE
-
-To update your copy of this package, simply re-perform the installation procedure in the "**GETTING STARTED**" section above.  You can skip installing the dependencies such as usearch, muscle, and the required perl modules, however note any discrepancies when you run `perl Makefile.PL` and install anything that is missing or below the required version number.
-
-Note that each perl script in the package has its own version number.  If you include --header as an option when running commands, output files will have a header with run information, including the version of the script that was used to generate the output.  Rest assured that all the elements of the pipeline will skip the headers when processing the files (except for the output of cff2qiime.pl, as qiime does not recognize the headers).
 
 
 ## EXAMPLES
@@ -321,8 +419,8 @@ Users are encouraged to submit bug reports at [https://github.com/hepcat72/CFF/i
 
     uname -a
     echo $SHELL
-    muscle --version
-    usearch --version
+    muscle -version
+    usearch -version
 
 For errors from specific scripts (e.g. getReals.pl), please also include the output of the specific script's --version flag, e.g.:
 
