@@ -5,6 +5,7 @@
 #USAGE: tcsh run_CFF_on_FastA.tcsh trimlen outdir "fasta-files-pattern"
 # E.G.: tcsh run_CFF_on_FastA.tcsh 130 myanalysis "some-dir/*.fa"
 
+setenv MYARGV    `echo "$argv"`
 setenv STARTTIME `perl -e 'print(scalar(time()))'`
 setenv TRIMLEN   `echo "$argv" | cut -f 1 -d " "`
 setenv ANALDIR   `echo "$argv" | cut -f 2 -d " "`
@@ -61,6 +62,8 @@ if ( -e $ANALDIR ) then
   exit
 endif
 
+echo
+echo "$0 $MYARGV"
 echo
 echo "RUNNING run_CFF_on_FastA.tcsh"
 echo "-----------------------------"
