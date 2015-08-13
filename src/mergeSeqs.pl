@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.16';
+my $software_version_number = '2.17';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -455,6 +455,8 @@ else
 my $abund_parse_errs = {};
 my $diff_sizes       = 0;
 my $size_error_mode  = ($trim_size == 0 ? 1 : 0);
+my $got_something    = 0;
+my $got_anything     = 0;
 
 #foreach my $input_file_set (@$input_files)
 foreach my $set_num (0..$#$input_file_sets)
@@ -588,6 +590,8 @@ foreach my $set_num (0..$#$input_file_sets)
 	my($def,$seq) = @$rec;
 	$seq = uc($seq);
 
+	$got_anything = 1;
+
 	my $id = '';
 	if($def =~ /\s*[\@\>]\s*(\S+)/)
 	  {
@@ -686,6 +690,8 @@ foreach my $set_num (0..$#$input_file_sets)
 		next;
 	      }
 	  }
+
+	$got_something = 1;
 
 	#Warn about possibly erroneous duplicate records if they have the same
 	#ID, the sequence exists, and the abundance of one of the records is
@@ -786,6 +792,24 @@ elsif((!defined($abundance_pattern) || $abundance_pattern eq '') &&
 	  "sequence data or you have supplied a valid abundance pattern ",
 	  "(-p).");
     quit(8);
+  }
+
+unless($got_something)
+  {
+    if($got_anything)
+      {
+	error("No viable sequences were found in any of the input files.  ",
+	      "Please check to make sure your trim length (-b) is not too ",
+	      "long and that your deflines are parseable.");
+	quit(9);
+      }
+    else
+      {
+	error("No viable sequences were found in any of the input files.  ",
+	      "Please check to make sure your file paths are correct and ",
+	      "that your input files have sequences in them.");
+	quit(10);
+      }
   }
 
 if($isglobal)
