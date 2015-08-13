@@ -31,7 +31,7 @@ if [ $? -ne 0 ]
   then
     if [ "$EUID" -ne 0 ]
       then
-        echo "Please run as root with no parameters so that curl can be installed first. Then run again with your CFF install parameters."
+        echo "Please run this script as root with no parameters so dependencies of the install.tcsh script can be installed first. Then run install.tcsh with your CFF install parameters."
         exit 1
     fi
     apt-get install curl
@@ -66,7 +66,7 @@ if [ $? -ne 0 ]
   then
     if [ "$EUID" -ne 0 ]
       then
-        echo "Please run as root with no parameters so that the tcsh shell can be installed first. Then run again with your CFF install parameters."
+        echo "Please run this script as root with no parameters so dependencies of the install.tcsh script can be installed first. Then run install.tcsh with your CFF install parameters."
         exit 1
     fi
     apt-get install tcsh
@@ -101,7 +101,7 @@ if [ $? -ne 0 ]
   then
     if [ "$EUID" -ne 0 ]
       then
-        echo "Please run as root with no parameters so that perl's ExtUtils::MakeMaker module can be installed first. Then run again with your CFF install parameters."
+        echo "Please run this script as root with no parameters so dependencies of the install.tcsh script can be installed first. Then run install.tcsh with your CFF install parameters."
         exit 1
     fi
     sudo yum install -y perl-CPAN
@@ -110,7 +110,7 @@ if [ $? -ne 0 ]
         echo "ERROR 5: Unable to install the tcsh shell"
         exit 5
     fi
-    echo "perl module: ExtUtils::MakeMaker has been installed successfully. You may now install CFF by running this script again with a usearch download link."
+    echo "perl module: ExtUtils::MakeMaker has been installed successfully. You may now install CFF by running install.tcsh with a usearch download link."
     preinstall=1
 fi
 
@@ -122,12 +122,12 @@ if [ $args -eq 0 ]
         if [ "$preinstall" -eq 1 ]
           then
             echo
-            echo "Dependencies installed.  Install CFF by running this script again with a usearch download link."
+            echo "Dependencies installed.  Install CFF by running install.tcsh with a usearch download link."
             echo
             exit 0
         fi
         echo
-        echo "Dependencies appear to already have been installed.  Install CFF by running this script again with a usearch download link."
+        echo "Dependencies appear to already have been installed.  Install CFF by running install.tcsh with a usearch download link."
         echo
         exit 0
     fi
