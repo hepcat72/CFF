@@ -145,8 +145,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "neighbors.pl        '$ANALDIR/1_lib/$LIB' -o .nbrs"
-neighbors.pl "$ANALDIR/1_lib/$LIB" -o .nbrs --overwrite
+echo -n "neighbors.pl        '$ANALDIR/1_lib/$LIB' -o .nbrs -t fasta"
+neighbors.pl "$ANALDIR/1_lib/$LIB" -o .nbrs -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -161,8 +161,8 @@ setenv LASTTIME `perl -e 'print(scalar(time()))'`
 #errorRates.pl "$ANALDIR/1_lib/$LIB" -n "$ANALDIR/1_lib/$LIB.nbrs" -h .zhist --overwrite
 
 
-echo -n "errorRates.pl       '$ANALDIR/1_lib/$LIB' -n '$ANALDIR/1_lib/$LIB.nbrs' -z $Z -o .erates"
-errorRates.pl "$ANALDIR/1_lib/$LIB" -n "$ANALDIR/1_lib/$LIB.nbrs" -z $Z -o .erates --overwrite
+echo -n "errorRates.pl       '$ANALDIR/1_lib/$LIB' -n '$ANALDIR/1_lib/$LIB.nbrs' -z $Z -o .erates -t fasta"
+errorRates.pl "$ANALDIR/1_lib/$LIB" -n "$ANALDIR/1_lib/$LIB.nbrs" -z $Z -o .erates -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -173,8 +173,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "nZeros.pl           '$ANALDIR/1_lib/$SHOWSTUBS.drp.fna.lib' -n '$ANALDIR/1_lib/$LIB.nbrs' -r '$ANALDIR/1_lib/$LIB.erates' -o .n0s --outdir '$ANALDIR/2_n0s'"
-nZeros.pl "$ANALDIR/1_lib/$STUBS.drp.fna.lib" -n "$ANALDIR/1_lib/$LIB.nbrs" -r "$ANALDIR/1_lib/$LIB.erates" -o .n0s --outdir "$ANALDIR/2_n0s" --overwrite
+echo -n "nZeros.pl           '$ANALDIR/1_lib/$SHOWSTUBS.drp.fna.lib' -n '$ANALDIR/1_lib/$LIB.nbrs' -r '$ANALDIR/1_lib/$LIB.erates' -o .n0s --outdir '$ANALDIR/2_n0s' -t fasta"
+nZeros.pl "$ANALDIR/1_lib/$STUBS.drp.fna.lib" -n "$ANALDIR/1_lib/$LIB.nbrs" -r "$ANALDIR/1_lib/$LIB.erates" -o .n0s --outdir "$ANALDIR/2_n0s" -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -185,8 +185,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "getCandidates.pl    '$ANALDIR/2_n0s/$SHOWSTUBS.drp.fna.lib.n0s' -o .cands -h $MAG --outdir '$ANALDIR/3_cands'"
-getCandidates.pl "$ANALDIR/2_n0s/$STUBS.drp.fna.lib.n0s" -o .cands -h $MAG --outdir "$ANALDIR/3_cands" --overwrite
+echo -n "getCandidates.pl    '$ANALDIR/2_n0s/$SHOWSTUBS.drp.fna.lib.n0s' -o .cands -h $MAG --outdir '$ANALDIR/3_cands' -t fasta"
+getCandidates.pl "$ANALDIR/2_n0s/$STUBS.drp.fna.lib.n0s" -o .cands -h $MAG --outdir "$ANALDIR/3_cands" -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -197,8 +197,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "getReals.pl      -i '$ANALDIR/3_cands/$SHOWSTUBS.drp.fna.lib.n0s.cands' -n '$ANALDIR/2_n0s/$SHOWSTUBS.drp.fna.lib.n0s' -f '$ANALDIR/1_lib/$LIB' -k $K --outdir '$ANALDIR/4_reals_table'"
-getReals.pl -i "$ANALDIR/3_cands/$STUBS.drp.fna.lib.n0s.cands" -n "$ANALDIR/2_n0s/$STUBS.drp.fna.lib.n0s" -f "$ANALDIR/1_lib/$LIB" -k $K --outdir "$ANALDIR/4_reals_table" --overwrite
+echo -n "getReals.pl      -i '$ANALDIR/3_cands/$SHOWSTUBS.drp.fna.lib.n0s.cands' -n '$ANALDIR/2_n0s/$SHOWSTUBS.drp.fna.lib.n0s' -f '$ANALDIR/1_lib/$LIB' -k $K --outdir '$ANALDIR/4_reals_table' -t fasta"
+getReals.pl -i "$ANALDIR/3_cands/$STUBS.drp.fna.lib.n0s.cands" -n "$ANALDIR/2_n0s/$STUBS.drp.fna.lib.n0s" -f "$ANALDIR/1_lib/$LIB" -k $K --outdir "$ANALDIR/4_reals_table" -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -209,8 +209,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "filterIndels.pl     '$ANALDIR/4_reals_table/$LIB.reals' -o .filt -f .indels --outdir '$ANALDIR/5_indels'"
-filterIndels.pl "$ANALDIR/4_reals_table/$LIB.reals" -o .filt -f .indels --outdir "$ANALDIR/5_indels" --overwrite
+echo -n "filterIndels.pl     '$ANALDIR/4_reals_table/$LIB.reals' -o .filt -f .indels --outdir '$ANALDIR/5_indels' -t fasta"
+filterIndels.pl "$ANALDIR/4_reals_table/$LIB.reals" -o .filt -f .indels --outdir "$ANALDIR/5_indels" -t fasta --overwrite
 if ( $status ) then
  echo
  echo
@@ -221,8 +221,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "cff2qiime.pl        '$ANALDIR/5_indels/$LIB.reals.filt' -s '$ANALDIR/4_reals_table/$LIB.smry' --outdir '$ANALDIR/optional_6_qiime'"
-cff2qiime.pl "$ANALDIR/5_indels/$LIB.reals.filt" -s "$ANALDIR/4_reals_table/$LIB.smry" --outdir "$ANALDIR/optional_6_qiime" --overwrite
+echo -n "cff2qiime.pl        '$ANALDIR/5_indels/$LIB.reals.filt' -s '$ANALDIR/4_reals_table/$LIB.smry' --outdir '$ANALDIR/optional_6_qiime' -t fasta"
+cff2qiime.pl "$ANALDIR/5_indels/$LIB.reals.filt" -s "$ANALDIR/4_reals_table/$LIB.smry" --outdir "$ANALDIR/optional_6_qiime" -t fasta --overwrite
 if ( $status ) then
   echo
   echo
@@ -233,8 +233,8 @@ perl -e 'print STDERR (" -- ",(scalar(time()) - $ARGV[0])," seconds\n")' $LASTTI
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "interestingPairs.pl '$ANALDIR/1_lib/$LIB' -s '$ANALDIR/4_reals_table/$LIB.smry' -o '$LIB.pairs' --outdir '$ANALDIR/optional_7_interestingPairs'"
-interestingPairs.pl "$ANALDIR/1_lib/$LIB" -s "$ANALDIR/4_reals_table/$LIB.smry" -o "$LIB.pairs" --outdir "$ANALDIR/optional_7_interestingPairs" --overwrite
+echo -n "interestingPairs.pl '$ANALDIR/1_lib/$LIB' -s '$ANALDIR/4_reals_table/$LIB.smry' -o '$LIB.pairs' --outdir '$ANALDIR/optional_7_interestingPairs' -t fasta"
+interestingPairs.pl "$ANALDIR/1_lib/$LIB" -s "$ANALDIR/4_reals_table/$LIB.smry" -o "$LIB.pairs" --outdir "$ANALDIR/optional_7_interestingPairs" -t fasta --overwrite
 if ( $status ) then
   echo
   echo
