@@ -15,3 +15,4 @@ samples/Caporaso_GutSamples_out
 src/cff2qiime-fixthislater.pl
 samples/Caporaso_GutSamples_out-bak
 test/Caporaso_*_check.smry.sort.test
+logfile
