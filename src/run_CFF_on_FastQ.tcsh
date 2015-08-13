@@ -7,6 +7,7 @@
 
 # * - Usually 64, details: http://drive5.com/usearch/manual/fastq_params.html
 
+setenv MYARGV    `echo "$argv"`
 setenv STARTTIME `perl -e 'print(scalar(time()))'`
 setenv TRIMLEN   `echo "$argv" | cut -f 1 -d " "`
 setenv ASCII     `echo "$argv" | cut -f 2 -d " "`      #Either 33 or 64*
@@ -66,6 +67,8 @@ if ( -e $ANALDIR ) then
   exit
 endif
 
+echo
+echo "$0 $MYARGV"
 echo
 echo "RUNNING run_CFF_on_FastQ.tcsh"
 echo "-----------------------------"
