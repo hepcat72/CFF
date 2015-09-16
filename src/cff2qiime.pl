@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.9';                   #Global
+my $software_version_number = '1.10';                  #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -305,6 +305,8 @@ foreach my $set_num (0..$#$input_file_sets)
 		  {warning("Multiple column header lines detected.  Using ",
 			   "most recent.")}
 
+		#Eliminate trailing white space padding
+		s/ +$//;
 		@sample_ids = split(/ *\t */,$_,-1);
 		$may_shift  = 1;
 	      }
@@ -5124,16 +5126,11 @@ sub getQiimeScript
     my $scpt_str = <<"end_var";
 #!/bin/bash
 
-#USAGE: Edit this script for your preferred qiime parameters and run it from the directory in which the cff2qiime.pl script was run
+#USAGE: Edit this script for your preferred qiime parameters and run it from
+#the directory in which the cff2qiime.pl script was run (\$RUNDIR below)
 
-if [ ! -a $rep_set_file ]; then
-    if [ "\$PWD" != "$ENV{PWD}" ]; then
-        echo "ERROR: You must run this script from [$ENV{PWD}] (the directory in which cff2qiime.pl was run) or edit this script to correct the relative file paths so that it can be run from a different location."
-        exit 1;
-    fi
-fi
-
-#File paths/names (Edit here [and delete the if..fi code above] if running from a different location)
+#File paths/names (Edit here if running from a different location)
+RUNDIR=$ENV{PWD}
 REPSFL=$rep_set_file
 OTUSFL=$output_file
 TAXDIR=$rep_set_file.taxa-dir
@@ -5143,37 +5140,96 @@ TREEFL=$rep_set_file.tre
 BIOMFL=$biom_file
 LENGTH=$length
 
-echo "Starting \$REPSFL, \$OTUSFL, \$BIOMFL"
+main() {
 
-mkdir "\$TAXDIR"
-mkdir "\$ALNDIR"
-mkdir "\$FLTDIR"
+  echo "Starting \$REPSFL, \$OTUSFL, \$BIOMFL"
 
-echo "Assigning taxonomy..."
-assign_taxonomy.py -i "\$REPSFL" -o "\$TAXDIR"
+  mkdir "\$TAXDIR"
+  mkdir "\$ALNDIR"
+  mkdir "\$FLTDIR"
 
-echo "Aligning..."
-align_seqs.py -i "\$REPSFL" -o "\$ALNDIR" -e "\$LENGTH"
+  echo "Assigning taxonomy..."
+  assign_taxonomy.py -i "\$REPSFL" -o "\$TAXDIR"
 
-echo "Filtering..."
-filter_alignment.py -i "\$ALNDIR"/*_aligned* -o "\$FLTDIR"
+  #The following mitigates potential failure if greengenes is not installed
+  if [ \$? -ne 0 ]; then alternateTaxAssign; fi
 
-echo "Making phylogeny..."
-make_phylogeny.py -i "\$FLTDIR"/*_aligned_pfiltered* -o "\$TREEFL"
+  echo "Aligning..."
+  align_seqs.py -i "\$REPSFL" -o "\$ALNDIR" -e "\$LENGTH"
 
-echo "Making biom file..."
-make_otu_table.py -i "\$OTUSFL" -o "\$BIOMFL" -e "\$ALNDIR"/*_failures.fasta -t "\$TAXDIR"/*_tax_assignments.txt
+  echo "Filtering..."
+  filter_alignment.py -i "\$ALNDIR"/*_aligned* -o "\$FLTDIR"
 
-echo
-echo "Output files:"
-echo "============="
-echo "\$TAXDIR/*"
-echo "\$ALNDIR/*"
-echo "\$FLTDIR/*"
-echo "\$TREEFL"
-echo "\$BIOMFL"
-echo
-echo DONE
+  echo "Making phylogeny..."
+  make_phylogeny.py -i "\$FLTDIR"/*_aligned_pfiltered* -o "\$TREEFL"
+
+  echo "Making biom file..."
+  make_otu_table.py -i "\$OTUSFL" -o "\$BIOMFL" -e "\$ALNDIR"/*_failures.fasta -t "\$TAXDIR"/*_tax_assignments.txt
+
+  echo
+  echo "Output files:"
+  echo "============="
+  echo "\$TAXDIR/*"
+  echo "\$ALNDIR/*"
+  echo "\$FLTDIR/*"
+  echo "\$TREEFL"
+  echo "\$BIOMFL"
+  echo
+  echo DONE
+}
+
+
+
+
+##
+## Do not edit the code below this point
+##
+
+function alternateTaxAssign {
+  while true; do
+    echo
+    read -p "ERROR:assign_taxonomy.py failed. You can: [d] Download/install greengenes and try again, [r] use rdp, or [e] exit. [d/r/e]? " yn
+    if [ \$yn == "d" ]
+     then
+       SAVEPWD=\$PWD
+       cd
+       echo "Downloading greengenes..."
+       wget http://greengenes.lbl.gov/Download/Sequence_Data/Fasta_data_files/core_set_aligned.fasta.imputed
+       wget http://greengenes.lbl.gov/Download/Sequence_Data/lanemask_in_1s_and_0s
+       cd \$SAVEPWD
+       echo "Assigning taxonomy..."
+       assign_taxonomy.py -i "\$REPSFL" -o "\$TAXDIR"
+       if [ \$? -eq 0 ]
+        then
+          break;
+       fi
+    elif [ \$yn == "r" ]
+     then
+       echo "Assigning taxonomy (using -m rdp)..."
+       assign_taxonomy.py -i "\$REPSFL" -m rdp -o "\$TAXDIR"
+       if [ \$? -eq 0 ]
+        then
+          break;
+       fi
+    elif [ \$yn == "e" ]
+     then
+       exit;
+    else
+       echo "Please answer d, r, or e.";
+    fi
+  done;
+}
+
+
+
+if [ ! -a $rep_set_file ]; then
+    if [ "\$PWD" != "\$RUNDIR" ]; then
+        echo "ERROR: You must run this script from [\$RUNDIR] (the directory in which cff2qiime.pl was run) or edit this script to correct the relative file paths so that it can be run from a different location."
+        exit 1;
+    fi
+fi
+
+main
 end_var
 
     return($scpt_str);
