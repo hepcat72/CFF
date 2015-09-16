@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.10';                  #Global
+my $software_version_number = '1.11';                  #Global
 my $created_on_date         = '8/4/2014';              #Global
 
 #Robert W. Leach
@@ -5151,9 +5151,6 @@ main() {
   echo "Assigning taxonomy..."
   assign_taxonomy.py -i "\$REPSFL" -o "\$TAXDIR"
 
-  #The following mitigates potential failure if greengenes is not installed
-  if [ \$? -ne 0 ]; then alternateTaxAssign; fi
-
   echo "Aligning..."
   align_seqs.py -i "\$REPSFL" -o "\$ALNDIR" -e "\$LENGTH"
 
@@ -5184,43 +5181,6 @@ main() {
 ##
 ## Do not edit the code below this point
 ##
-
-function alternateTaxAssign {
-  while true; do
-    echo
-    read -p "ERROR:assign_taxonomy.py failed. You can: [d] Download/install greengenes and try again, [r] use rdp, or [e] exit. [d/r/e]? " yn
-    if [ \$yn == "d" ]
-     then
-       SAVEPWD=\$PWD
-       cd
-       echo "Downloading greengenes..."
-       wget http://greengenes.lbl.gov/Download/Sequence_Data/Fasta_data_files/core_set_aligned.fasta.imputed
-       wget http://greengenes.lbl.gov/Download/Sequence_Data/lanemask_in_1s_and_0s
-       cd \$SAVEPWD
-       echo "Assigning taxonomy..."
-       assign_taxonomy.py -i "\$REPSFL" -o "\$TAXDIR"
-       if [ \$? -eq 0 ]
-        then
-          break;
-       fi
-    elif [ \$yn == "r" ]
-     then
-       echo "Assigning taxonomy (using -m rdp)..."
-       assign_taxonomy.py -i "\$REPSFL" -m rdp -o "\$TAXDIR"
-       if [ \$? -eq 0 ]
-        then
-          break;
-       fi
-    elif [ \$yn == "e" ]
-     then
-       exit;
-    else
-       echo "Please answer d, r, or e.";
-    fi
-  done;
-}
-
-
 
 if [ ! -a $rep_set_file ]; then
     if [ "\$PWD" != "\$RUNDIR" ]; then
