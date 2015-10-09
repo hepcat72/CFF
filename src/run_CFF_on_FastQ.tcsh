@@ -1,6 +1,6 @@
 #!/bin/tcsh
 
-#VERSION: 1.4
+#VERSION: 1.5
 
 #USAGE: tcsh run_CFF_on_FastQ.tcsh trim_length max_expected_errors* ascii_offset** outdir "fastq-files-pattern"
 # E.G.: tcsh run_CFF_on_FastQ.tcsh 130 1 64 myanalysis "some-dir/*.fq"
