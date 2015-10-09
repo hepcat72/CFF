@@ -65,6 +65,34 @@ This section walks you through what you need to do to go from scratch to first r
    If you encounter any problems during the example run, refer to "INSTALL" below.
 
 
+## USAGE
+
+2 pre-configured shell scripts for the standard pipeline have been provided:
+
+    - run_CFF_on_FastA.tcsh
+    - run_CFF_on_FastQ.tcsh
+
+Each runs the various steps of the pipeline given minimal parameters:
+
+    1. Trim length
+    2. Maximum Number of Expected Errors per Sequence\*
+    3. ASCII offset for quality scores\* (either 33 or 64)
+    4. Output directory
+    5. Sequence files (one for each sample)
+
+\* - These parameters are for run_CFF_on_FastQ.tcsh only.
+
+For advanced user, the individual steps of the pipeline can of course be run and their parameters fine-tuned.  Refer to *THE PIPELINE* section below for more details.  The ASCII offset depends on the format of your fastq files.  It's usually 64, but could be 33.  You can find details here: http://drive5.com/usearch/manual/fastq_params.html
+
+The most common parameters to tweak are the trim length and the maximum number of expected errors.  Read on for tips to selecting appropriate values for these parameters.
+
+### CHOOSING A TRIM LENGTH & MAX NUMBER OF EXPECTED ERRORS
+
+All sequences in the input must be trimmed to a single length and generally, there should only be 1 error expected per sequence in order for CFF analysis to work optimally.  A selected trim length will trim longer sequences down to size and skip shorter sequences.  A max number of expected errors will be used by run_CFF_on_FastQ.tcsh to filter lesser quality sequences.
+
+As a rule of thumb, for short reads, an arbitrary trim length which captures most sequences and a maximum number of expected errors per sequence of 1 are acceptable.  For longer reads the maximum number of expected errors should be increased.  A simple rule of thumb could be: max expected errors = length of your read/100.  To choose optimal values for these parameters to get the most out of your data, you should run `usearch fastq_stats` on a representative sample from your data and select thresholds that will include the most sequences at the highest quality.  To see an example case, refer to EXAMPLE 4 in the EXAMPLES section near the bottom of this README.
+
+
 ## THE PIPELINE
 
 The pipeline is primarily a 7-step process whose goal is to find sequences that are as error-free as possible. There are also 3 additional steps at the end to: filter insertions & deletions, convert the output to be compatible with qiime version 1.3.0 (see qiime.org), and a follow-up analysis designed to find pairs of similar sequences that behave differently in a population. It can be run with a single command (run_CFF_on_FastA.tcsh or run_CFF_on_FastQ.tcsh), but each script component is also available:
@@ -375,6 +403,33 @@ Run these commands:
     tcsh run_example3.tcsh
 
 Example 3 runs CFF on the gut samples test data. It runs the same analysis as example 2, but serves to demonstrate the value of the interestingPairs.pl script.  Please refer to the interpretation of the results at the end of the GETTING STARTED section above.
+
+##### Example 4
+
+Consider the following dataset (not included in this distribution), which includes a set of long high quality overlapping forward and reverse reads that have been stitched together.  For this CFF analysis, the maximum number of expected errors was set at 2.5 and the trim length was set at 275.  The following is how we arrived at those values.
+
+To choose a trim length, we ran `usearch fastq_stats` on a representative sample of the data.  Refer to this analysis in the files:
+
+samples/Leaf_R1.stats.log
+samples/Leaf_R2_stats.log
+samples/Rh10_R1.stats.log
+samples/Rh10_R2.stats.log
+
+The maximum number of expected errors (which is given to usearch's -fastq_maxee parameter in the run_CFF_on_FastQ.tcsh shell script) tells usearch to remove reads whose EE score ("expected errors" - based on Phred quality scores) exceeds the maximum provided.  For the short reads on which we mostly tested CFF, our initial default of 1 was a very weak criterion and only eliminated a few suspicious reads with low-quality stretches.
+
+For this particular data set, the data is of very good quality, but long reads naturally have larger EE scores (a long read is more likely to have an error somewhere).  So a maximum number of expected errors per sequence of 1 will filter out a large fraction of reads for no good reason.
+
+So how do you choose this parameter, and the trimming values?  This is no hard science, but here is the reasoning we usually follow.  You can use a similar reasoning for other datasets.
+
+First, let's decide if we want to use forward or reverse reads.  Compare lines 327 of the Leaf_R1_stats and Leaf_R2_stats. They tell us that for the same length (280 nt), the average R1 read has 1.7 expected errors, whereas the average R2 read has 7.4 errors. This tells us that based on Phred quality scores, the R1 reads are much cleaner, so let's use those.
+
+Now, let's choose a trim length.  According to line 369 (Leaf_R1_stats), at length 285, just over half of all reads (50.82%) have an EE score below 1.  CFF works best if most reads have 0 or 1 errors in them, so at this trimming length, we expect about half the reads to be in this regime, which is great.  But this is not a reason to discard the other half of the reads: if Phred scores suggest they might have more than 1 error on average, a lot may still have none!  So let's only discard the ones that are likely to be "bad".  According to line 332, at length 285 the average EE score is 1.95.  If for a given read, the EE score is significantly larger than that, it is likely to be a bad read.  So let's set an EE threshold at 2.5 (-fastq_maxee 2.5).  Note that at the default value of -fastq_maxee=1, lots of reads will be discarded, but we have no good reason to believe they are indeed bad-quality.
+
+Note also that the first few bases of all reads have lower quality scores than the rest (in Leaf_R1_stats, compare the values in the AvgQ column of lines 49-52 and from line 53 onwards).  This does not actually mean anything, it is entirely due to the algorithm by which the sequencer constructs the quality score.  Nevertheless, as we noted before, due to some other artifact (which Phred scores do not know anything about), the first few nucleotides sometimes contain random bases which can seriously screw up your CFF output.  So to be extra safe, we trim the first 10 bases just in case.  (We must do that to all your data first, before feeding it into CFF.)  Then the trimming length 285 becomes 275.
+
+Based on the log file, the FastQ format uses the Phred+33 convention. Therefore, we run CFF as follows:
+run_CFF_on_FastQ.tcsh 285 2.5 33 myanalysis "*.fastq"
+(or 275 if you had trimmed the first 10 bases).
 
 
 ## REFERENCES
