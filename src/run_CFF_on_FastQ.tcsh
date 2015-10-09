@@ -2,18 +2,30 @@
 
 #VERSION: 1.4
 
-#USAGE: tcsh run_CFF_on_FastQ.tcsh trimlen ascii_offset* outdir "fastq-files-pattern"
-# E.G.: tcsh run_CFF_on_FastQ.tcsh 130 64 myanalysis "some-dir/*.fq"
+#USAGE: tcsh run_CFF_on_FastQ.tcsh trim_length max_expected_errors* ascii_offset** outdir "fastq-files-pattern"
+# E.G.: tcsh run_CFF_on_FastQ.tcsh 130 1 64 myanalysis "some-dir/*.fq"
 
-# * - Usually 64, details: http://drive5.com/usearch/manual/fastq_params.html
+# *  - Max number of expected errors per sequence. Rule of thumb: trim_length / 100
+# ** - Usually 64, but could be 33 details: http://drive5.com/usearch/manual/fastq_params.html
 
-setenv MYARGV    `echo "$argv"`
-setenv STARTTIME `perl -e 'print(scalar(time()))'`
-setenv TRIMLEN   `echo "$argv" | cut -f 1 -d " "`
-setenv ASCII     `echo "$argv" | cut -f 2 -d " "`      #Either 33 or 64*
-setenv ANALDIR   `echo "$argv" | cut -f 3 -d " "`
-setenv FASTQS    `echo "$argv" | cut -f 4-999999 -d " "`
-setenv LASTTIME  `perl -e 'print(scalar(time()))'`
+setenv MYARGV       `echo "$argv"`
+setenv STARTTIME    `perl -e 'print(scalar(time()))'`
+setenv TRIMLEN      `echo "$argv" | cut -f 1 -d " "`   #Subjective - pick your own
+setenv MAXEXPECTERR `echo "$argv" | cut -f 2 -d " "`   #Rule of thumb: $TRIMLEN/100
+setenv ASCII        `echo "$argv" | cut -f 3 -d " "`   #Either 33 or 64*
+setenv ANALDIR      `echo "$argv" | cut -f 4 -d " "`
+setenv FASTQS       `echo "$argv" | cut -f 5-999999 -d " "`
+setenv LASTTIME     `perl -e 'print(scalar(time()))'`
+setenv NUMARGS      `perl -e 'print(scalar(grep {/\S/ && \\!-e $_} @ARGV))' $argv`
+
+#Make sure the correct number of arguments (other than the files) were passed in
+if ( $NUMARGS < 4 ) then
+  echo
+  echo "ERROR: A minimum of 5 arguments are required."
+  echo '       Including: trim_length, max_expected_errors ascii_offset outdir fastq_files.'
+  echo
+  exit
+endif
 
 #Make space in the script environment for eventual long command lines
 unset argv
@@ -74,6 +86,7 @@ echo "RUNNING run_CFF_on_FastQ.tcsh"
 echo "-----------------------------"
 echo "Start time:                  "`date`
 echo "Trim length:                 $TRIMLEN"
+echo "Max Expected Errors per seq: $MAXEXPECTERR"
 echo "Z-score threshold:           $Z"
 echo "Magnitude over N0 Threshold: $MAG"
 echo "Nominations threshold:       $K"
@@ -89,7 +102,7 @@ mkdir $ANALDIR/0_2_drp
 
 foreach f ( $FASTQS )
 
-#usearch hits an error if you gice it an empty file, so let's skip empties
+#usearch hits an error if you give it an empty file, so let's skip empties
 if ( -z $f || ((-e $f) == 0) ) then
  echo
  echo "Skipping empty file $f"
@@ -101,8 +114,8 @@ set NAME=`perl -e 'print(join(",",map {s%.*/%%;$_} @ARGV))' $f`
 setenv LASTTIME `perl -e 'print(scalar(time()))'`
 
 
-echo -n "$USEARCH -fastq_filter     $f -fastq_trunclen $TRIMLEN -fastq_maxee 1 -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet"
-$USEARCH -fastq_filter $f -fastq_trunclen $TRIMLEN -fastq_maxee 1 -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet >& /dev/null
+echo -n "$USEARCH -fastq_filter     $f -fastq_trunclen $TRIMLEN -fastq_maxee $MAXEXPECTERR -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet"
+$USEARCH -fastq_filter $f -fastq_trunclen $TRIMLEN -fastq_maxee $MAXEXPECTERR -fastaout $ANALDIR/0_1_qc/$NAME.qc.fna -relabel "$NAME"_ -eeout -fastq_ascii $ASCII -fastq_truncqual $QUAL -quiet >& /dev/null
 if ( $status ) then
  echo
  echo
