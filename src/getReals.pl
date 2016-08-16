@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.16';
+my $software_version_number = '1.17';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -892,6 +892,14 @@ foreach my $reals_file (keys(%$hash))
       {
 	$real_seqs  = $k_real_seqs;
 	$chime_seqs = [];
+      }
+
+    if(scalar(@$real_seqs) == 0 && scalar(@$chime_seqs) == 0 &&
+       scalar(@$k_real_seqs))
+      {
+	warning("uchime appears to have failed.  Proceeding without chimera ",
+		"filtering.");
+	$real_seqs  = $k_real_seqs;
       }
 
     next if($dry_run);
@@ -4741,11 +4749,32 @@ sub getUchimeReals
 
     `$uchime_command1`;
 
+    if($?)
+      {
+	error("The following uchime command exited with an error status:\n\n",
+	      $uchime_command1,(defined($!) && $! ne '' ? "\n\n$!" : ''));
+	return([],[]);
+      }
+
     verbose("\nSecond uchime call:\n\n$uchime_command2\n\n");
 
     `$uchime_command2`;
 
-    openIn(*UCHIME,$tmp_out_file);
+    if($?)
+      {
+	error("The following uchime command exited with an error status:\n\n",
+	      $uchime_command2,(defined($!) && $! ne '' ? "\n\n$!" : ''));
+	return([],[]);
+      }
+
+    if(!openIn(*UCHIME,$tmp_out_file))
+      {
+	error("There appears to have been trouble opening the uchime output ",
+	      "from the following 2 commands:\n\n$uchime_command1\n\n",
+	      "$uchime_command2\n\nRun the commands manually to determine ",
+	      "what the problem is that uchime is having with the data.");
+	return([],[]);
+      }
 
     while(my $rec = getNextSeqRec(*UCHIME,0,$tmp_out_file))
       {
