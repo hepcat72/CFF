@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '1.15';
+my $software_version_number = '1.16';
 my $created_on_date         = '5/19/2014';
 
 ##
@@ -60,10 +60,7 @@ my $uchime            = 'usearch';
 my $seq_id_pattern    = '^\s*[>\@]\s*([^;]+)';
 my $n0_pattern        = 'N0=([^;]+);';
 my $default_tmpdir    = './';
-my $tmpdir            = exists($ENV{TMPDIR}) ? $ENV{TMPDIR} :
-  (exists($ENV{TMP}) && -e $ENV{TMP} && -d $ENV{TMP} ? $ENV{TMP} :
-   (exists($ENV{TEMP}) && -e $ENV{TEMP} && -d $ENV{TMP} ? $ENV{TEMP} :
-    (-e '/tmp' && -d '/tmp' ? '/tmp' : $default_tmpdir)));
+my $tmpdir            = getTmpDir();
 my $tmp_suffix        = '.tmp.fna';
 
 #These variables (in main) are used by the following subroutines:
@@ -5614,4 +5611,21 @@ sub sigdig
       }
 
     return("$sign$new_num");
+  }
+
+#Globals used: $default_tmpdir
+sub getTmpDir
+  {
+    if(exists($ENV{TMPDIR}) &&
+       -e $ENV{TMPDIR} && -d $ENV{TMPDIR} && -w $ENV{TMPDIR})
+      {return($ENV{TMPDIR})}
+    elsif(exists($ENV{TMP}) && -e $ENV{TMP} && -d $ENV{TMP} && -w $ENV{TMP})
+      {return($ENV{TMP})}
+    elsif(exists($ENV{TEMP}) &&
+	  -e $ENV{TEMP} && -d $ENV{TEMP} && -w $ENV{TEMP})
+      {return($ENV{TEMP})}
+    elsif(-e '/tmp' && -d '/tmp' && -w '/tmp')
+      {return('/tmp')}
+    else
+      {return($default_tmpdir)}
   }
