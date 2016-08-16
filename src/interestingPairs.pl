@@ -3,7 +3,7 @@
 
 #USAGE: Run with no options to get usage or with --extended for more details
 
-my $software_version_number = '1.11';
+my $software_version_number = '1.12';
 my $created_on_date         = '9/10/2014';
 
 #Robert W. Leach
@@ -76,10 +76,7 @@ my $abundance_pattern = 'size=(\d+);';
 my $seq_id_pattern    = '^\s*[>\@]\s*([^;]+)';
 my $sigdig            = 3;
 my $default_tmpdir    = './';
-my $tmpdir            = exists($ENV{TMPDIR}) ? $ENV{TMPDIR} :
-  (exists($ENV{TMP}) && -e $ENV{TMP} && -d $ENV{TMP} ? $ENV{TMP} :
-   (exists($ENV{TEMP}) && -e $ENV{TEMP} && -d $ENV{TMP} ? $ENV{TEMP} :
-    (-e '/tmp' && -d '/tmp' ? '/tmp' : $default_tmpdir)));
+my $tmpdir            = getTmpDir();
 my $tmp_suffix        = '.tmp.fna';
 my $usearch           = 'usearch';
 my $processes         = 0;
@@ -7132,4 +7129,21 @@ sub putZero
     if($num =~ /^-?\./)
       {$num =~ s/\./0./}
     return($num);
+  }
+
+#Globals used: $default_tmpdir
+sub getTmpDir
+  {
+    if(exists($ENV{TMPDIR}) &&
+       -e $ENV{TMPDIR} && -d $ENV{TMPDIR} && -w $ENV{TMPDIR})
+      {return($ENV{TMPDIR})}
+    elsif(exists($ENV{TMP}) && -e $ENV{TMP} && -d $ENV{TMP} && -w $ENV{TMP})
+      {return($ENV{TMP})}
+    elsif(exists($ENV{TEMP}) &&
+	  -e $ENV{TEMP} && -d $ENV{TEMP} && -w $ENV{TEMP})
+      {return($ENV{TEMP})}
+    elsif(-e '/tmp' && -d '/tmp' && -w '/tmp')
+      {return('/tmp')}
+    else
+      {return($default_tmpdir)}
   }
