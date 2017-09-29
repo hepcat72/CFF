@@ -207,6 +207,9 @@ http://drive5.com/cgi-bin/upload3.py?license=0000000000000000000
     sudo ./install.tcsh "http://personal_usearch_download_url"
 
 #### Linux:
+
+**WARNING**: There is a current known install issue on some flavors of Linux that cause the tests to fail.  A work-around exists.  Until a fix is implemented and you run into this issue, you can edit the sample/run_example#.tcsh files and remove the double-quotes around the file arguments.  If this does not fix your install issue, you can get more details on the specifics of the failure by going into the samples directory and running the example scripts manually.
+
 ##### User-level/local install:
 
     sudo ./install_linux.sh
