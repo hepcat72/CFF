@@ -13,7 +13,7 @@
 #Copyright 2014
 
 #These variables (in main) are used by getVersion() and usage()
-my $software_version_number = '2.17';
+my $software_version_number = '2.18';
 my $created_on_date         = '3/26/2014';
 
 ##
@@ -1230,7 +1230,9 @@ sub verbose
     if($verbose_message =~ /^([^\n]*)/ && $main::last_verbose_state &&
        $verbose_message !~ /^\n/)
       {
-	my $append = ' ' x ($main::last_verbose_size - length($1));
+	my $fillersize = $main::last_verbose_size - length($1);
+	$fillersize = 0 if($fillersize < 0);
+	my $append = ' ' x $fillersize;
 	unless($verbose_message =~ s/\n/$append\n/)
 	  {$verbose_message .= $append}
       }
@@ -1316,10 +1318,14 @@ sub error
     #first line of the error message, put leader string at the beginning of
     #each line of the message, and indent each subsequent line by the length
     #of the leader string
+    my $fillersize = (defined($main::last_verbose_state) &&
+		      $main::last_verbose_state ?
+		      $main::last_verbose_size - $error_length : 0);
+    $fillersize = 0 if($fillersize < 0);
     my $error_string = $leader_string . shift(@error_message) .
       ($verbose && defined($main::last_verbose_state) &&
        $main::last_verbose_state ?
-       ' ' x ($main::last_verbose_size - $error_length) : '') . "\n";
+       ' ' x $fillersize : '') . "\n";
     foreach my $line (@error_message)
       {$error_string .= (' ' x $leader_length) . $line . "\n"}
 
@@ -1429,11 +1435,15 @@ sub warning
     #first line of the warning message, put leader string at the beginning of
     #each line of the message and indent each subsequent line by the length
     #of the leader string
+    my $fillersize = (defined($main::last_verbose_state) &&
+		      $main::last_verbose_state ?
+		      $main::last_verbose_size - $warning_length : 0);
+    $fillersize = 0 if($fillersize < 0);
     my $warning_string =
       $leader_string . shift(@warning_message) .
 	($verbose && defined($main::last_verbose_state) &&
 	 $main::last_verbose_state ?
-	 ' ' x ($main::last_verbose_size - $warning_length) : '') .
+	 ' ' x $fillersize : '') .
 	   "\n";
     foreach my $line (@warning_message)
       {$warning_string .= (' ' x $leader_length) . $line . "\n"}
@@ -1620,6 +1630,10 @@ sub debug
 
     my $leader_length = length($leader_string);
 
+    my $fillersize = (defined($main::last_verbose_state) &&
+		      $main::last_verbose_state ?
+		      $main::last_verbose_size - $debug_length : 0);
+    $fillersize = 0 if($fillersize < 0);
     if(defined($DEBUG))
       {
 	#If there were debug messages before $DEBUG got defined on the command
@@ -1636,7 +1650,7 @@ sub debug
 		      ($verbose &&
 		       defined($main::last_verbose_state) &&
 		       $main::last_verbose_state ?
-		       ' ' x ($main::last_verbose_size - $debug_length) : ''),
+		       ' ' x $fillersize : ''),
 		      "\n");
 	foreach my $line (@debug_message)
 	  {print STDERR (' ' x $leader_length,
@@ -1662,7 +1676,7 @@ sub debug
 		   ($verbose &&
 		    defined($main::last_verbose_state) &&
 		    $main::last_verbose_state ?
-		    ' ' x ($main::last_verbose_size - $debug_length) : ''),
+		    ' ' x $fillersize : ''),
 		   "\n"));
 	foreach my $line (@debug_message)
 	  {$main::debug_buffer .= join('',(' ' x $leader_length,
@@ -4106,6 +4120,7 @@ sub formatSequence
       }
     $line_size_left = $chars_per_line;
     $lead_spaces    = $max_num_coord_digits - length($start_coord);
+    $lead_spaces    = 0 if($lead_spaces < 0);
 
     #5. Add the first coordinate with spacing if coords_left_flag is true.
     $line = ' ' x $lead_spaces . $start_coord . $coord_separator
@@ -4183,6 +4198,7 @@ sub formatSequence
 		   length($sub_sequence) == $line_size_left)
                   {
                     $lead_spaces = $max_num_coord_digits - length($coord);
+		    $lead_spaces = 0 if($lead_spaces < 0);
                     #6.2.3.3.1 Conditionally add coordinates based on the
                     #          coords flags
                     $line .= $coord_separator . ' ' x $lead_spaces . $coord
@@ -4199,6 +4215,7 @@ sub formatSequence
 
                     #6.2.3.3.5 Start the next line
                     $lead_spaces = $max_num_coord_digits - length($coord+1);
+		    $lead_spaces = 0 if($lead_spaces < 0);
                     $line = '';
                     $line = ' ' x $lead_spaces
                           . ($coords_asc_flag ? ($coord+1) : ($coord-1))
@@ -4226,6 +4243,7 @@ sub formatSequence
     #7. Add the last coodinate with enough leadin white-space to be lined up
     #   with the rest coordinates if the coords_right_flag is true
     $lead_spaces = $max_num_coord_digits - length($coord);
+    $lead_spaces = 0 if($lead_spaces < 0);
     $line .= ' ' x $line_size_left . $coord_separator . ' ' x $lead_spaces
           . $coord
       if($coords_right_flag && $line_size_left != $chars_per_line);
